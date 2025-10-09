@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  trainer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.trainer
+    runtime: nvidia
+    volumes:
+      - ../lab_tasks:/workspace/lab_tasks
+      - ../data:/workspace/data
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+
+  api-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.service
+    ports:
+      - "8000:8000"
+    command: uvicorn tuning_service.app:app --host 0.0.0.0
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus

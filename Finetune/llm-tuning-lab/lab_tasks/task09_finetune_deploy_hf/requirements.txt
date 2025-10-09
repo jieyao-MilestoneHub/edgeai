@@ -1,0 +1,20 @@
+# Task 09: 微調與部署專用依賴
+
+# 核心庫
+transformers>=4.35.0
+datasets>=2.14.0
+peft>=0.6.0
+accelerate>=0.24.0
+
+# Hugging Face Hub
+huggingface-hub>=0.19.0
+
+# 訓練相關
+torch>=2.0.0
+pandas>=2.0.0
+
+# Gradio (可選)
+gradio>=4.0.0
+
+# 工具
+tqdm>=4.65.0

@@ -1,0 +1,14 @@
+Q: 什麼是機器學習？
+A: 機器學習是人工智慧的一個分支，讓電腦系統能從數據中學習並改進，而不需要明確編程。
+
+Q: Python 和 JavaScript 有什麼不同？
+A: Python 主要用於數據分析、機器學習和後端開發，語法簡潔。JavaScript 主要用於網頁前端，也可用於後端（Node.js）。
+
+Q: 如何開始學習程式設計？
+A: 建議從 Python 開始，先學習基礎語法，然後做小專案練習。可以使用線上資源如 Codecademy 或 freeCodeCamp。
+
+Q: 什麼是 API？
+A: API（Application Programming Interface）是應用程式之間溝通的介面，讓不同軟體可以互相交換數據和功能。
+
+Q: Git 和 GitHub 有什麼差別？
+A: Git 是版本控制系統，GitHub 是託管 Git 專案的線上平台。Git 是工具，GitHub 是服務。

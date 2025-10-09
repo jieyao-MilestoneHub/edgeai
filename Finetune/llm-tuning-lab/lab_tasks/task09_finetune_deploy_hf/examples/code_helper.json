@@ -1,0 +1,7 @@
+[
+  {"input": "寫一個Python排序函數", "output": "def sort_list(items):\n    return sorted(items)\n\n# 使用範例\nnumbers = [3, 1, 4, 1, 5]\nprint(sort_list(numbers))  # [1, 1, 3, 4, 5]"},
+  {"input": "如何讀取CSV檔案？", "output": "import pandas as pd\n\ndf = pd.read_csv('data.csv')\nprint(df.head())"},
+  {"input": "建立一個簡單的Flask API", "output": "from flask import Flask, jsonify\n\napp = Flask(__name__)\n\n@app.route('/api/hello')\ndef hello():\n    return jsonify({'message': 'Hello World'})\n\nif __name__ == '__main__':\n    app.run(debug=True)"},
+  {"input": "Python如何連接資料庫？", "output": "import sqlite3\n\nconn = sqlite3.connect('database.db')\ncursor = conn.cursor()\ncursor.execute('SELECT * FROM users')\nresults = cursor.fetchall()\nconn.close()"},
+  {"input": "寫一個簡單的類別", "output": "class Person:\n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n    \n    def greet(self):\n        return f'Hello, my name is {self.name}'"}
+]

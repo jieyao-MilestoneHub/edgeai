@@ -1,0 +1,35 @@
+# LoRA Training Configuration
+
+# Model Settings
+model_name: "gpt2"  # or "gpt2-medium", "gpt2-large"
+
+# LoRA Hyperparameters
+lora:
+  rank: 8           # LoRA rank (推薦: 4-16)
+  alpha: 16.0       # Alpha scaling factor (通常 = 2 * rank)
+  dropout: 0.0      # LoRA dropout (0.0 for small datasets)
+  target_modules:   # 目標模組
+    - "c_attn"      # GPT-2 的 Q,K,V projection
+    - "c_proj"      # GPT-2 的 Output projection
+
+# Training Hyperparameters
+training:
+  num_epochs: 3
+  batch_size: 8
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  max_length: 512
+  gradient_clip: 1.0
+
+# Data Settings
+data:
+  dataset: "wikitext"
+  subset: "wikitext-2-raw-v1"
+  train_split: "train"
+  eval_split: "validation"
+
+# Output Settings
+output:
+  dir: "./output"
+  save_steps: 500
+  logging_steps: 100

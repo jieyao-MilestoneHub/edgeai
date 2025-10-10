@@ -1,35 +1,57 @@
-# LoRA Training Configuration
+# LoRA Training Configuration for SST-2 Sentiment Classification
 
 # Model Settings
-model_name: "gpt2"  # or "gpt2-medium", "gpt2-large"
+model_name: "bert-base-uncased"  # 使用 BERT 進行分類任務
+task_type: "sequence_classification"  # 序列分類任務
+num_labels: 2  # 二分類：0=負面, 1=正面
 
 # LoRA Hyperparameters
 lora:
   rank: 8           # LoRA rank (推薦: 4-16)
   alpha: 16.0       # Alpha scaling factor (通常 = 2 * rank)
-  dropout: 0.0      # LoRA dropout (0.0 for small datasets)
-  target_modules:   # 目標模組
-    - "c_attn"      # GPT-2 的 Q,K,V projection
-    - "c_proj"      # GPT-2 的 Output projection
+  dropout: 0.05     # LoRA dropout (0.05 適合分類任務)
+  target_modules:   # BERT 的目標模組
+    - "query"       # Q projection
+    - "key"         # K projection
+    - "value"       # V projection
+    - "dense"       # Output dense layer
 
 # Training Hyperparameters
 training:
   num_epochs: 3
-  batch_size: 8
-  learning_rate: 2.0e-4
+  batch_size: 16    # SST-2 樣本較短，可用較大 batch
+  learning_rate: 3.0e-4
   weight_decay: 0.01
-  max_length: 512
+  max_length: 128   # SST-2 句子通常較短
   gradient_clip: 1.0
+  warmup_ratio: 0.1  # 10% warmup
 
 # Data Settings
 data:
-  dataset: "wikitext"
-  subset: "wikitext-2-raw-v1"
+  dataset: "glue"
+  subset: "sst2"
   train_split: "train"
   eval_split: "validation"
+  # SST-2 數據集資訊：
+  # - 訓練集: 67,349 樣本
+  # - 驗證集: 872 樣本
+  # - 測試集: 1,821 樣本 (無標籤)
+  # - 任務: 電影評論情感二分類
 
 # Output Settings
 output:
   dir: "./output"
   save_steps: 500
   logging_steps: 100
+  eval_steps: 500   # 每 500 步評估一次
+
+# Evaluation Settings
+evaluation:
+  metric: "accuracy"  # 主要評估指標
+  save_best_model: true
+
+# Hugging Face Hub Settings (optional)
+huggingface:
+  push_to_hub: false              # 是否上傳到 HF Hub
+  hub_model_id: "your-username/bert-lora-sst2"  # HF 模型 ID
+  hub_token: null                 # HF token (或使用 huggingface-cli login)

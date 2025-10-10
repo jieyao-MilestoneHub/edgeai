@@ -1,45 +1,39 @@
 """
-LoRA (Low-Rank Adaptation) 實作
+LoRA (Low-Rank Adaptation) 實作（精簡、專注、可直接整合 transformers）
 
-這個模組實作了 LoRA 的核心組件：
-1. LoRALayer: 基礎 LoRA 層
-2. LinearWithLoRA: 整合 LoRA 的 Linear 層
-3. apply_lora_to_model: 應用 LoRA 到模型的工具函數
+本模組只負責 LoRA 的核心：
+1) LoRALayer: 低秩增量路徑  y = (alpha/r) * B(Ax)
+2) LinearWithLoRA: 凍結 Linear + 並聯 LoRA，支援合併/解除
+3) apply_lora_to_model: 以名稱/正則/predicate 選層套用 LoRA（含常見架構預設）
+4) 工具函數：只開 LoRA 參數訓練、統計參數、存/載 LoRA 權重、全模型合併/解除
 
 作者：LLM Tuning Lab
 授權：MIT
 """
 
+from __future__ import annotations
+import math
+import re
+from typing import Optional, List, Dict, Callable, Union, Iterable
+
 import torch
 import torch.nn as nn
-import math
-from typing import Optional, List, Dict
+import torch.nn.functional as F
 
 
+# ---------------------------
+# 1) LoRA 路徑：y = (α/r) * B(Ax)
+# ---------------------------
 class LoRALayer(nn.Module):
     """
-    LoRA Layer 實作
+    LoRA 低秩增量路徑（不含基底 Linear）
+    - A: (rank, in_features)   先降維
+    - B: (out_features, rank)  再升維
+    - scaling = alpha / rank
 
-    數學原理：
-        output = (α/r) · B @ A @ x
-
-    其中：
-        - A ∈ ℝ^(r×in_features): 下投影矩陣
-        - B ∈ ℝ^(out_features×r): 上投影矩陣
-        - α: 縮放超參數
-        - r: rank（低秩維度）
-
-    Args:
-        in_features: 輸入特徵維度
-        out_features: 輸出特徵維度
-        rank: LoRA rank，決定可訓練參數量
-        alpha: 縮放超參數，通常設為 rank 的 1-2 倍
-        dropout: Dropout 比例，防止過擬合
-
-    Example:
-        >>> lora = LoRALayer(512, 512, rank=8, alpha=16)
-        >>> x = torch.randn(4, 10, 512)  # (batch, seq, features)
-        >>> output = lora(x)  # (4, 10, 512)
+    NOTE:
+    * A 用 Kaiming，B 用 0 初始化 => 初始增量為 0，不干擾預訓練行為
+    * 前向使用 F.linear：更快、更適配 AMP
     """
 
     def __init__(
@@ -51,130 +45,52 @@ class LoRALayer(nn.Module):
         dropout: float = 0.0,
     ):
         super().__init__()
+        if rank <= 0:
+            raise ValueError(f"rank must be > 0, got {rank}")
+        if alpha <= 0:
+            raise ValueError(f"alpha must be > 0, got {alpha}")
+        if not (0.0 <= dropout < 1.0):
+            raise ValueError(f"dropout must be in [0,1), got {dropout}")
 
-        # 參數驗證
-        assert rank > 0, f"rank must be positive, got {rank}"
-        assert alpha > 0, f"alpha must be positive, got {alpha}"
-        assert 0 <= dropout < 1, f"dropout must be in [0, 1), got {dropout}"
-
-        self.rank = rank
-        self.alpha = alpha
         self.in_features = in_features
         self.out_features = out_features
+        self.rank = rank
+        self.alpha = float(alpha)
+        self.scaling = float(alpha) / float(rank)
 
-        # LoRA 權重矩陣
-        # A: 將輸入從 in_features 降維到 rank
-        self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
+        # 參數：A, B
+        # 注意：F.linear(x, weight) 期望 weight 形狀為 (out, in)
+        self.lora_A = nn.Parameter(torch.empty(rank, in_features))
+        self.lora_B = nn.Parameter(torch.empty(out_features, rank))
 
-        # B: 將 rank 升維到 out_features
-        self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
-
-        # Dropout layer
-        self.dropout = nn.Dropout(p=dropout) if dropout > 0.0 else nn.Identity()
-
-        # 縮放因子：α/r
-        # 這確保不同 rank 的學習率自動調整
-        self.scaling = alpha / rank
-
-        # 初始化權重
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         self.reset_parameters()
 
     def reset_parameters(self):
-        """
-        初始化 LoRA 權重
-
-        策略：
-        - lora_A: Kaiming uniform 初始化（類似 PyTorch Linear 層）
-        - lora_B: 零初始化
-
-        為什麼 B 初始化為零？
-        - 保證訓練開始時，LoRA 輸出為零矩陣
-        - 不影響預訓練模型的初始行為
-        - 隨著訓練進行，逐步學習任務特定的調整
-        """
-        # A 使用 Kaiming uniform（與 PyTorch Linear 一致）
         nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
-
-        # B 初始化為零
         nn.init.zeros_(self.lora_B)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        LoRA 前向傳播
-
-        計算流程：
-            1. x → dropout
-            2. dropout(x) @ A^T → (降維到 rank)
-            3. result @ B^T → (升維到 out_features)
-            4. result × (α/r) → 最終輸出
-
-        Args:
-            x: 輸入 tensor, shape = (batch_size, seq_len, in_features)
-               或 (batch_size, in_features)
-
-        Returns:
-            LoRA 輸出, shape 與 Linear(x) 相同
-
-        Shape:
-            - Input: (*, in_features)
-            - Output: (*, out_features)
-        """
-        # 應用 dropout
-        x_dropout = self.dropout(x)
-
-        # 第一次投影：降維
-        # x_dropout: (*, in_features)
-        # lora_A: (rank, in_features)
-        # result: (*, rank)
-        intermediate = x_dropout @ self.lora_A.T
-
-        # 第二次投影：升維
-        # intermediate: (*, rank)
-        # lora_B: (out_features, rank)
-        # result: (*, out_features)
-        output = intermediate @ self.lora_B.T
-
-        # 縮放
-        output = output * self.scaling
-
-        return output
+        # (*, in_features) -> (*, rank)
+        x = self.dropout(x)
+        lx = F.linear(x, self.lora_A)               # A @ x
+        # (*, rank) -> (*, out_features)
+        lx = F.linear(lx, self.lora_B)              # B @ (A @ x)
+        return lx * self.scaling
 
     def extra_repr(self) -> str:
-        """額外的字串表示，用於 print(model)"""
-        return (
-            f"in_features={self.in_features}, "
-            f"out_features={self.out_features}, "
-            f"rank={self.rank}, "
-            f"alpha={self.alpha}, "
-            f"scaling={self.scaling:.4f}"
-        )
+        return (f"in={self.in_features}, out={self.out_features}, "
+                f"r={self.rank}, alpha={self.alpha}, scaling={self.scaling:.4f}")
 
 
+# --------------------------------------
+# 2) 凍結 Linear + 並聯 LoRA（可合併/解除）
+# --------------------------------------
 class LinearWithLoRA(nn.Module):
     """
-    整合 LoRA 的 Linear 層
-
-    這個模組將標準 Linear 層與 LoRA 層結合：
-        output = Linear(x) + LoRA(x)
-
-    其中 Linear 的權重被凍結，只訓練 LoRA 部分。
-
-    Args:
-        in_features: 輸入特徵維度
-        out_features: 輸出特徵維度
-        rank: LoRA rank
-        alpha: LoRA alpha
-        bias: 是否使用 bias
-        dropout: LoRA dropout 比例
-
-    Example:
-        >>> layer = LinearWithLoRA(512, 512, rank=8, alpha=16)
-        >>> x = torch.randn(4, 10, 512)
-        >>> output = layer(x)  # (4, 10, 512)
-        >>>
-        >>> # 檢查參數
-        >>> trainable = sum(p.numel() for p in layer.parameters() if p.requires_grad)
-        >>> print(f"可訓練參數：{trainable}")
+    output = Linear(x) + LoRA(x)
+    - 凍結底層 Linear 的權重/偏置
+    - 支援 merge/unmerge，便於部署/續訓
     """
 
     def __init__(
@@ -185,328 +101,213 @@ class LinearWithLoRA(nn.Module):
         alpha: float = 16.0,
         bias: bool = True,
         dropout: float = 0.0,
+        dtype: Optional[torch.dtype] = None,
+        device: Optional[torch.device] = None,
     ):
         super().__init__()
-
-        # 基礎 Linear 層（將被凍結）
-        self.linear = nn.Linear(in_features, out_features, bias=bias)
-
-        # LoRA 層
-        self.lora = LoRALayer(
-            in_features=in_features,
-            out_features=out_features,
-            rank=rank,
-            alpha=alpha,
-            dropout=dropout,
-        )
-
-        # 凍結原始權重
+        self.linear = nn.Linear(in_features, out_features, bias=bias, dtype=dtype, device=device)
+        self.lora = LoRALayer(in_features, out_features, rank=rank, alpha=alpha, dropout=dropout)
         self._freeze_linear()
-
-        # 合併狀態標記
         self.merged = False
 
     def _freeze_linear(self):
-        """凍結 Linear 層的所有參數"""
-        self.linear.weight.requires_grad = False
+        self.linear.weight.requires_grad_(False)
         if self.linear.bias is not None:
-            self.linear.bias.requires_grad = False
+            self.linear.bias.requires_grad_(False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        前向傳播
-
-        Args:
-            x: 輸入, shape = (*, in_features)
-
-        Returns:
-            輸出, shape = (*, out_features)
-        """
         if self.merged:
-            # 權重已合併，直接使用 Linear
             return self.linear(x)
-        else:
-            # 並行計算兩條路徑
-            base_output = self.linear(x)
-            lora_output = self.lora(x)
-            return base_output + lora_output
+        base = self.linear(x)
+        return base + self.lora(x)
 
+    @torch.no_grad()
     def merge_weights(self):
-        """
-        合併 LoRA 權重到原始權重
-
-        訓練完成後，可以將 LoRA 權重合併：
-            W' = W₀ + α/r · BA
-
-        優點：
-        - 推論時零額外計算開銷
-        - 可以直接部署標準格式模型
-        - 移除 LoRA 結構
-        """
-        if not self.merged:
-            # 計算 LoRA delta: BA
-            delta_weight = self.lora.lora_B @ self.lora.lora_A
-            delta_weight = delta_weight * self.lora.scaling
-
-            # 更新權重：W' = W + ΔW
-            self.linear.weight.data += delta_weight
-
-            # 標記為已合併
-            self.merged = True
-
-    def unmerge_weights(self):
-        """
-        反向操作：將權重拆分回去
-
-        用途：
-        - 需要繼續訓練時
-        - 需要單獨保存 LoRA 權重時
-        """
         if self.merged:
-            # 計算 LoRA delta
-            delta_weight = self.lora.lora_B @ self.lora.lora_A
-            delta_weight = delta_weight * self.lora.scaling
+            return
+        delta = (self.lora.lora_B @ self.lora.lora_A) * self.lora.scaling   # (out, in)
+        # 對齊 dtype/device
+        delta = delta.to(self.linear.weight.dtype).to(self.linear.weight.device)
+        self.linear.weight.add_(delta)
+        self.merged = True
 
-            # 減去 delta：W = W' - ΔW
-            self.linear.weight.data -= delta_weight
-
-            # 標記為未合併
-            self.merged = False
+    @torch.no_grad()
+    def unmerge_weights(self):
+        if not self.merged:
+            return
+        delta = (self.lora.lora_B @ self.lora.lora_A) * self.lora.scaling
+        delta = delta.to(self.linear.weight.dtype).to(self.linear.weight.device)
+        self.linear.weight.sub_(delta)
+        self.merged = False
 
     def extra_repr(self) -> str:
-        return (
-            f"in_features={self.linear.in_features}, "
-            f"out_features={self.linear.out_features}, "
-            f"bias={self.linear.bias is not None}, "
-            f"merged={self.merged}"
-        )
+        return (f"in={self.linear.in_features}, out={self.linear.out_features}, "
+                f"bias={self.linear.bias is not None}, merged={self.merged}")
+
+
+# ------------------------------------------------------
+# 3) 套用 LoRA 到模型：字串 / 正則 / predicate 皆可
+#    內建常見架構的預設掛點
+# ------------------------------------------------------
+_TargetSpec = Union[List[str], str, re.Pattern, Callable[[str, nn.Module], bool], None]
+
+DEFAULT_TARGETS: Dict[str, List[str]] = {
+    # BERT / RoBERTa / DeBERTa 系列（HF 命名）
+    "bert": ["query", "key", "value", "output.dense"],
+    "roberta": ["query", "key", "value", "output.dense"],
+    "deberta": ["query_proj", "key_proj", "value_proj", "dense"],
+    # GPT-2
+    "gpt2": ["c_attn", "c_proj"],
+    # LLaMA / LLaMA2 / Mistral 系列（HF 命名）
+    "llama": ["q_proj", "k_proj", "v_proj", "o_proj"],
+    "mistral": ["q_proj", "k_proj", "v_proj", "o_proj"],
+}
+
+def _name_matches(name: str, module: nn.Module, spec: _TargetSpec) -> bool:
+    if spec is None:
+        return True
+    if isinstance(spec, list):
+        return any(tok in name for tok in spec)
+    if isinstance(spec, str):
+        return spec in name
+    if isinstance(spec, re.Pattern):
+        return bool(spec.search(name))
+    if callable(spec):
+        return bool(spec(name, module))
+    return False
 
 
 def apply_lora_to_model(
     model: nn.Module,
-    target_modules: Optional[List[str]] = None,
+    target_modules: _TargetSpec = None,
     rank: int = 8,
     alpha: float = 16.0,
     dropout: float = 0.0,
+    *,
+    arch_hint: Optional[str] = None,
+    skip_if_already_lora: bool = True,
 ) -> nn.Module:
     """
-    將 LoRA 應用到模型中的指定模組
+    將模型中的 nn.Linear 以 LinearWithLoRA 替換（in-place）
+    - target_modules:
+        * None: 對所有 Linear 套用（不建議，除非很小模型）
+        * List[str]/str: 名稱包含任一字串
+        * 正則: re.Pattern
+        * predicate(name, module) -> bool
+    - arch_hint: "bert" | "roberta" | "gpt2" | "llama" | "mistral" ...
+      若未指定 target_modules，會用 DEFAULT_TARGETS[arch_hint]
+    - skip_if_already_lora: 避免重複替換
 
-    Args:
-        model: 要修改的模型
-        target_modules: 目標模組名稱列表（包含這些字串的模組會被替換）
-                       例如：['q_proj', 'v_proj', 'k_proj', 'o_proj']
-                       如果為 None，則對所有 Linear 層應用
-        rank: LoRA rank
-        alpha: LoRA alpha
-        dropout: LoRA dropout
-
-    Returns:
-        修改後的模型（in-place 修改）
-
-    Example:
-        >>> from transformers import GPT2LMHeadModel
-        >>> model = GPT2LMHeadModel.from_pretrained('gpt2')
-        >>>
-        >>> # 只對 attention 的 Q, V 使用 LoRA
-        >>> model = apply_lora_to_model(
-        ...     model,
-        ...     target_modules=['q_proj', 'v_proj'],
-        ...     rank=8
-        ... )
-        >>>
-        >>> # 檢查可訓練參數
-        >>> trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        >>> total = sum(p.numel() for p in model.parameters())
-        >>> print(f"可訓練: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
+    回傳 model（同一物件）
     """
-    # 收集需要替換的模組
-    modules_to_replace = []
+    if target_modules is None and arch_hint:
+        key = arch_hint.lower()
+        if key in DEFAULT_TARGETS:
+            target_modules = DEFAULT_TARGETS[key]
 
+    replacements: List[tuple[str, nn.Linear]] = []
     for name, module in model.named_modules():
-        # 檢查是否是 Linear 層
-        if isinstance(module, nn.Linear):
-            # 如果指定了 target_modules，檢查名稱是否匹配
-            if target_modules is None or any(
-                target in name for target in target_modules
-            ):
-                modules_to_replace.append((name, module))
+        if isinstance(module, LinearWithLoRA) and skip_if_already_lora:
+            continue
+        if isinstance(module, nn.Linear) and _name_matches(name, module, target_modules):
+            replacements.append((name, module))
 
-    # 替換模組
-    for name, module in modules_to_replace:
-        # 分割名稱以獲取父模組
-        name_parts = name.split('.')
-        parent_name = '.'.join(name_parts[:-1])
-        child_name = name_parts[-1]
+    for name, lin in replacements:
+        parent_name = name.rsplit(".", 1)[0] if "." in name else ""
+        child_name = name.split(".")[-1]
+        parent = model.get_submodule(parent_name) if parent_name else model
 
-        # 獲取父模組
-        if parent_name:
-            parent = model.get_submodule(parent_name)
-        else:
-            parent = model
-
-        # 創建新的 LoRA 層
-        lora_layer = LinearWithLoRA(
-            in_features=module.in_features,
-            out_features=module.out_features,
+        lora_lin = LinearWithLoRA(
+            in_features=lin.in_features,
+            out_features=lin.out_features,
             rank=rank,
             alpha=alpha,
-            bias=module.bias is not None,
+            bias=(lin.bias is not None),
             dropout=dropout,
+            dtype=lin.weight.dtype,
+            device=lin.weight.device,
         )
+        # 複製底層 Linear 權重/偏置（保留 dtype/device）
+        with torch.no_grad():
+            lora_lin.linear.weight.copy_(lin.weight)
+            if lin.bias is not None:
+                lora_lin.linear.bias.copy_(lin.bias)
 
-        # 複製原始權重
-        lora_layer.linear.weight.data = module.weight.data.clone()
-        if module.bias is not None:
-            lora_layer.linear.bias.data = module.bias.data.clone()
-
-        # 替換
-        setattr(parent, child_name, lora_layer)
+        setattr(parent, child_name, lora_lin)
 
     return model
 
 
-def get_lora_parameters(model: nn.Module) -> Dict[str, torch.Tensor]:
+# ---------------------------
+# 4) 常用工具函式
+# ---------------------------
+def mark_only_lora_as_trainable(model: nn.Module) -> None:
     """
-    提取模型中的 LoRA 參數
-
-    Args:
-        model: 包含 LoRA 層的模型
-
-    Returns:
-        LoRA 參數字典
-
-    Example:
-        >>> lora_params = get_lora_parameters(model)
-        >>> torch.save(lora_params, 'adapter_model.bin')
+    只開啟 LoRA 參數 requires_grad=True；其餘全部關閉。
     """
-    lora_state_dict = {}
+    for n, p in model.named_parameters():
+        if "lora_A" in n or "lora_B" in n:
+            p.requires_grad_(True)
+        else:
+            p.requires_grad_(False)
 
+
+def get_lora_state_dict(model: nn.Module) -> Dict[str, torch.Tensor]:
+    """
+    只取 LoRA 參數（適合存 adapter）
+    """
+    out: Dict[str, torch.Tensor] = {}
     for name, param in model.named_parameters():
-        if 'lora' in name and param.requires_grad:
-            lora_state_dict[name] = param.data.clone()
+        if ("lora_A" in name or "lora_B" in name):
+            out[name] = param.detach().clone()
+    return out
 
-    return lora_state_dict
 
-
-def count_lora_parameters(model: nn.Module) -> Dict[str, int]:
+@torch.no_grad()
+def load_lora_state_dict(model: nn.Module, lora_state: Dict[str, torch.Tensor], strict: bool = False):
     """
-    統計模型參數
-
-    Returns:
-        字典包含：
-        - total: 總參數量
-        - trainable: 可訓練參數量（LoRA）
-        - frozen: 凍結參數量
-        - percentage: 可訓練參數百分比
+    將 LoRA 權重載入到已套用 LoRA 的模型
+    - strict=False：略過找不到的鍵，並打印提示
     """
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(
-        p.numel() for p in model.parameters() if p.requires_grad
-    )
-    frozen_params = total_params - trainable_params
+    missing = []
+    for name, tensor in lora_state.items():
+        try:
+            module = dict(model.named_parameters())[name]
+            module.copy_(tensor.to(module.device).to(module.dtype))
+        except KeyError:
+            missing.append(name)
+    if strict and missing:
+        raise KeyError(f"Missing LoRA params in model: {missing}")
+    if missing:
+        print(f"[LoRA] Skipped {len(missing)} unmatched keys (strict={strict}): {missing[:3]}{'...' if len(missing)>3 else ''}")
 
+
+def count_lora_parameters(model: nn.Module) -> Dict[str, int | float]:
+    total = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return {
-        'total': total_params,
-        'trainable': trainable_params,
-        'frozen': frozen_params,
-        'percentage': 100.0 * trainable_params / total_params if total_params > 0 else 0,
+        "total": total,
+        "trainable": trainable,
+        "frozen": total - trainable,
+        "percentage": 100.0 * trainable / total if total > 0 else 0.0,
     }
 
 
-# ========== 測試程式碼 ==========
+@torch.no_grad()
+def merge_lora_weights(model: nn.Module):
+    """
+    將全模型的 LinearWithLoRA 權重合併（部署前使用）
+    """
+    for m in model.modules():
+        if isinstance(m, LinearWithLoRA):
+            m.merge_weights()
 
-if __name__ == "__main__":
-    print("Testing LoRA implementation...\n")
 
-    # 測試 1: LoRALayer
-    print("=" * 60)
-    print("Test 1: LoRALayer")
-    print("=" * 60)
-
-    lora = LoRALayer(512, 512, rank=8, alpha=16)
-    x = torch.randn(4, 10, 512)
-    output = lora(x)
-
-    print(f"Input shape:  {x.shape}")
-    print(f"Output shape: {output.shape}")
-    print(f"LoRA config:  {lora}")
-
-    # 初始輸出應該接近零
-    print(f"Initial output norm: {output.norm().item():.6f} (should be ~0)")
-
-    # 測試 2: LinearWithLoRA
-    print("\n" + "=" * 60)
-    print("Test 2: LinearWithLoRA")
-    print("=" * 60)
-
-    layer = LinearWithLoRA(512, 512, rank=8, alpha=16)
-    output = layer(x)
-
-    print(f"Layer: {layer}")
-    print(f"Output shape: {output.shape}")
-
-    # 參數統計
-    total = sum(p.numel() for p in layer.parameters())
-    trainable = sum(p.numel() for p in layer.parameters() if p.requires_grad)
-    print(f"Total params:     {total:,}")
-    print(f"Trainable params: {trainable:,}")
-    print(f"Reduction:        {total/trainable:.1f}×")
-
-    # 測試 3: 權重合併
-    print("\n" + "=" * 60)
-    print("Test 3: Weight Merging")
-    print("=" * 60)
-
-    layer = LinearWithLoRA(512, 512, rank=8, alpha=16)
-
-    # 前向傳播（未合併）
-    out_before = layer(x)
-    print(f"Output before merge: {out_before.shape}")
-
-    # 合併權重
-    layer.merge_weights()
-    out_after = layer(x)
-    print(f"Output after merge:  {out_after.shape}")
-
-    # 驗證輸出一致
-    diff = (out_before - out_after).abs().max().item()
-    print(f"Max difference: {diff:.10f} (should be ~0)")
-
-    # 測試 4: 應用到簡單模型
-    print("\n" + "=" * 60)
-    print("Test 4: Apply to Model")
-    print("=" * 60)
-
-    class SimpleModel(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.layer1 = nn.Linear(512, 512)
-            self.layer2 = nn.Linear(512, 256)
-            self.layer3 = nn.Linear(256, 128)
-
-        def forward(self, x):
-            x = self.layer1(x)
-            x = self.layer2(x)
-            x = self.layer3(x)
-            return x
-
-    model = SimpleModel()
-
-    print("Before LoRA:")
-    stats = count_lora_parameters(model)
-    print(f"  Total:     {stats['total']:,}")
-    print(f"  Trainable: {stats['trainable']:,}")
-
-    # 應用 LoRA
-    model = apply_lora_to_model(model, rank=8, alpha=16)
-
-    print("\nAfter LoRA:")
-    stats = count_lora_parameters(model)
-    print(f"  Total:     {stats['total']:,}")
-    print(f"  Trainable: {stats['trainable']:,}")
-    print(f"  Percentage: {stats['percentage']:.4f}%")
-
-    print("\n" + "=" * 60)
-    print("✅ All tests passed!")
-    print("=" * 60)
+@torch.no_grad()
+def unmerge_lora_weights(model: nn.Module):
+    """
+    解除全模型的 LinearWithLoRA 權重合併（續訓時使用）
+    """
+    for m in model.modules():
+        if isinstance(m, LinearWithLoRA):
+            m.unmerge_weights()

@@ -1,490 +1,548 @@
-# 📙 LoRA 理論
+# LoRA 理論：從數學到實作
 
 > Low-Rank Adaptation of Large Language Models
-
-## 🎯 學習目標
-
-閱讀本文後，你將能夠：
-
-- ✅ 理解為什麼需要 LoRA
-- ✅ 掌握低秩分解 (Low-Rank Decomposition) 原理
-- ✅ 計算 LoRA 的參數量與記憶體節省
-- ✅ 手寫 LoRA 模組實作
-- ✅ 調整 rank 與 alpha 超參數
+> 本章以 BERT-base-uncased 為範例，深入探討 LoRA 的數學原理與工程實踐
 
 ---
 
-## 🤔 為什麼需要 LoRA？
+## 學習目標
 
-### 全參數微調的挑戰
+完成本章後，你將能夠：
 
-假設我們要微調 LLaMA-7B 模型：
-
-```
-模型參數：7B (70 億)
-精度：FP16 (2 bytes/param)
-記憶體需求：7B × 2 = 14GB (僅權重)
-
-訓練時額外需求：
-- Optimizer states (Adam): 2× weights = 28GB
-- Gradients: 1× weights = 14GB
-- Activations: ~20GB
-
-總計：~76GB
-```
-
-**問題：**
-- ❌ 單張 A100 (40GB) 無法訓練
-- ❌ 每個下游任務都需要完整模型副本
-- ❌ 部署時需要載入整個模型
+- 從數學角度理解為什麼低秩分解能節省 99% 的參數
+- 推導 LoRA 的前向傳播和梯度計算
+- 解釋 rank 和 alpha 如何影響訓練效果
+- 在 Transformer 架構中正確應用 LoRA
 
 ---
 
-## 💡 LoRA 核心思想
+## 為什麼需要 LoRA？一個實際問題
 
-### 關鍵洞察
+### 場景：你要微調 BERT 做情感分類
 
-> **假設：預訓練模型的權重更新存在於低秩子空間**
+假設你有一個情感分類任務，準備用 BERT-base-uncased（110M 參數）微調。
 
-數學表述：
+**你打開 GPU 監控，發現：**
 
 ```
-原始全參數更新：
+模型權重 (FP16):        220 MB
+Adam optimizer states:  440 MB  (momentum + variance，各 1× weights)
+梯度 (gradients):        220 MB
+Activations (batch=32): ~1.2 GB (依 sequence length 而定)
+───────────────────────────────
+總記憶體需求:            ≈ 2.1 GB
+```
+
+**第一個疑問**：「這只是 BERT-base，如果是 LLaMA-7B（14GB 權重）呢？」
+
+計算一下：
+```
+LLaMA-7B 全參數微調記憶體需求：
+權重 (FP16):           14 GB
+Optimizer states:      28 GB
+Gradients:             14 GB
+Activations:           ~20 GB
+───────────────────────────────
+總計:                  ≈ 76 GB
+```
+
+一張 A100 (40GB) 裝不下，需要多卡或者模型並行。
+
+---
+
+### 第二個疑問：「真的需要更新全部 70 億參數嗎？」
+
+思考一下微調的目的：
+- **預訓練階段**：學習通用語言知識（語法、語義、常識）
+- **微調階段**：適配特定任務（例如情感分類的決策邊界）
+
+**關鍵洞察**：
+> 如果預訓練模型已經學會了語言的「通用表示」，微調時只需要在這個表示空間中做「小幅調整」，而不是重新學習所有知識。
+
+**數學假設**：
+假設預訓練權重為 W₀ ∈ ℝ^(d×k)，微調後的權重為 W'，則：
+```
 W' = W₀ + ΔW
+```
 
-其中 ΔW ∈ ℝ^(d×k) 是低秩的：rank(ΔW) << min(d, k)
+LoRA 的核心假設是：**ΔW 存在於一個低秩子空間中**。
 
-LoRA 近似：
+---
+
+### LoRA 的解決方案
+
+**不更新整個 ΔW**，而是用兩個小矩陣 B 和 A 來近似：
+
+```
 W' = W₀ + BA
 
 其中：
-- B ∈ ℝ^(d×r)
-- A ∈ ℝ^(r×k)
-- r << min(d, k)  (r 是 rank)
+- W₀ ∈ ℝ^(d×k)  (凍結，不訓練)
+- B ∈ ℝ^(d×r)    (可訓練)
+- A ∈ ℝ^(r×k)    (可訓練)
+- r << min(d, k) (rank，通常 r=4~16)
 ```
 
-### 視覺化理解
-
+**參數量對比**（以 BERT Attention 層為例）：
 ```
-Full Fine-tuning:
-┌─────────────┐
-│   W₀ (d×k)  │  ─────>  ┌─────────────┐
-│  (frozen)   │           │  W₀ + ΔW    │
-└─────────────┘           │  (d×k)      │
-                          └─────────────┘
-                          可訓練參數：d × k
+原始權重矩陣 W:      768 × 768 = 589,824 參數
+LoRA (r=8):         (768×8) + (8×768) = 12,288 參數
 
-LoRA:
-┌─────────────┐
-│   W₀ (d×k)  │ (frozen)
-└─────────────┘
-       +
-    ┌───┐     ┌───┐
-    │ B │  ×  │ A │
-    │d×r│     │r×k│
-    └───┘     └───┘
-    可訓練參數：d×r + r×k
+節省比例: 589,824 / 12,288 ≈ 48×
 ```
 
 ---
 
-## 🔬 數學原理
+## 數學基礎：為什麼低秩假設成立？
 
-### 1. 低秩分解 (Low-Rank Decomposition)
+### 低秩分解的直覺理解
 
-**定理：** 任何矩陣 M ∈ ℝ^(m×n) 都可以分解為：
+**問題**：為什麼 ΔW 可以用低秩矩陣近似？
+
+讓我們從線性代數的角度思考：
+
+任何矩陣 M ∈ ℝ^(m×n) 都可以進行奇異值分解 (SVD)：
 
 ```
-M = UΣVᵀ  (SVD)
+M = UΣVᵀ
 
 其中：
-- U ∈ ℝ^(m×r): 左奇異向量
-- Σ ∈ ℝ^(r×r): 奇異值對角矩陣
-- V ∈ ℝ^(n×r): 右奇異向量
-- r = rank(M)
+- U ∈ ℝ^(m×m): 左奇異向量
+- Σ ∈ ℝ^(m×n): 對角矩陣，對角線為奇異值 σ₁ ≥ σ₂ ≥ ... ≥ σᵣ
+- V ∈ ℝ^(n×n): 右奇異向量
 ```
 
-**低秩近似：** 保留前 k 個最大奇異值：
+**關鍵性質**：奇異值通常呈現快速衰減
+
+假設矩陣的奇異值分布如下：
+```
+σ₁ = 100
+σ₂ = 50
+σ₃ = 25
+σ₄ = 12
+σ₅ = 2   ← 從這裡開始快速衰減
+σ₆ = 0.5
+σ₇ = 0.1
+...
+```
+
+**低秩近似**：只保留前 r 個最大的奇異值
 
 ```
-M ≈ M_k = U_k Σ_k V_k^T
-
-其中 k << r
-```
-
-### 2. LoRA 前向傳播
-
-```python
-# 原始線性層
-h = W₀x
-
-# LoRA 修改後
-h = W₀x + BAx
-  = W₀x + (BA)x
+M_r = U_r Σ_r V_rᵀ
 
 其中：
-- x ∈ ℝ^k: 輸入
-- W₀ ∈ ℝ^(d×k): 凍結的原始權重
-- B ∈ ℝ^(d×r): 可訓練
-- A ∈ ℝ^(r×k): 可訓練
+- U_r ∈ ℝ^(m×r): 前 r 個左奇異向量
+- Σ_r ∈ ℝ^(r×r): 前 r 個奇異值
+- V_r ∈ ℝ^(r×r): 前 r 個右奇異向量
 ```
 
-### 3. 縮放因子 Alpha
+**近似誤差**（Frobenius 範數）：
 
-```python
-h = W₀x + (α/r) × BAx
+```
+||M - M_r||_F = √(σ²_{r+1} + σ²_{r+2} + ... + σ²_min(m,n))
+```
+
+如果 σ₅, σ₆, ... 都很小，則 r=4 的低秩近似就足夠好。
+
+---
+
+### LoRA 應用低秩假設的理論依據
+
+**假設**：預訓練模型的權重更新 ΔW 本質上是低維的
+
+**為什麼這個假設合理？**
+
+1. **內在維度假說 (Intrinsic Dimensionality)**
+   - 論文 [Intrinsic Dimensionality Explains the Effectiveness of Language Model Fine-Tuning](https://arxiv.org/abs/2012.13255) 證明：
+   - 即使模型有數十億參數，微調時的「有效參數空間」維度遠小於總參數量
+   - 實驗顯示：用 200-10000 維的子空間就能達到全參數微調的效果
+
+2. **任務特定性**
+   - 微調是在預訓練表示的基礎上做「小幅調整」
+   - 例如情感分類：只需調整決策邊界，不需要重新學習語言語法
+
+3. **實驗驗證**
+   - Microsoft 的 LoRA 論文證明：在 GPT-3 (175B) 上，r=4 就能達到接近全參數微調的效果
+
+---
+
+### LoRA 的數學形式
+
+**核心公式**：
+
+```
+h = Wx = W₀x + ΔWx = W₀x + BAx
 
 其中：
-- α: 縮放超參數 (通常設為 rank 的 1-2 倍)
-- r: rank
+- x ∈ ℝ^k:      輸入向量
+- W₀ ∈ ℝ^(d×k): 凍結的預訓練權重
+- B ∈ ℝ^(d×r):  可訓練的低秩矩陣 1
+- A ∈ ℝ^(r×k):  可訓練的低秩矩陣 2
+- h ∈ ℝ^d:      輸出向量
+```
+
+**加入縮放因子 α**（實際實作中使用）：
+
+```
+h = W₀x + (α/r) · BAx
+
+其中：
+- α: 縮放超參數（通常設為 r 或 2r）
+- α/r: 縮放因子，用於控制 LoRA 更新的影響強度
 ```
 
 **為什麼需要 α/r？**
-- 控制 LoRA 權重的影響程度
-- 不同 rank 之間的學習率標準化
-- 類似 Layer Normalization 的概念
+
+1. **學習率標準化**
+   - 不同 rank 的 BA 矩陣乘積的規模不同
+   - α/r 確保切換 rank 時不需要重新調整學習率
+
+2. **穩定性**
+   - 防止 LoRA 更新過大，破壞預訓練知識
+   - 類似 Layer Normalization 的標準化思想
 
 ---
 
-## 📊 參數量與記憶體分析
+### 參數量分析
 
-### 參數量計算
-
-假設對 LLaMA-7B 的一個 Attention 層使用 LoRA：
-
+**全參數微調**：
 ```
-原始權重：
-- Q: 4096 × 4096 = 16M
-- K: 4096 × 4096 = 16M
-- V: 4096 × 4096 = 16M
-- O: 4096 × 4096 = 16M
-總計：64M 參數
-
-LoRA (r=8):
-每個矩陣：
-- B: 4096 × 8 = 32,768
-- A: 8 × 4096 = 32,768
-- 小計：65,536
-
-四個矩陣：65,536 × 4 = 262,144 (0.26M)
-
-參數減少：64M / 0.26M ≈ 246×
+可訓練參數 = d × k
 ```
 
-### 記憶體計算
+**LoRA**：
+```
+可訓練參數 = d×r + r×k = r(d + k)
+
+參數比例 = r(d + k) / (d×k)
+```
+
+**具體例子**（BERT Attention 層，d=k=768）：
+
+| Rank (r) | LoRA 參數量 | 全參數量 | 比例 |
+|----------|------------|---------|------|
+| 4 | 4×(768+768) = 6,144 | 589,824 | 1.04% |
+| 8 | 8×(768+768) = 12,288 | 589,824 | 2.08% |
+| 16 | 16×(768+768) = 24,576 | 589,824 | 4.17% |
+| 64 | 64×(768+768) = 98,304 | 589,824 | 16.67% |
+
+**結論**：即使 r=64，也只需要訓練 16.67% 的參數。
+
+---
+
+## LoRA 在 Transformer 架構中的應用
+
+### BERT-base 的結構分析
+
+首先，讓我們看看 BERT-base 的完整結構：
 
 ```
-Full Fine-tuning (7B model):
-- Weights: 14GB
-- Optimizer: 28GB
-- Gradients: 14GB
-- Total: ~56GB
+BERT-base-uncased (110M 參數)
+│
+├── Token Embeddings (768×30522 = 23.4M)
+├── Position Embeddings (768×512 = 0.39M)
+├── LayerNorm + Dropout
+│
+└── 12 × Transformer Blocks
+    ├── Multi-Head Attention
+    │   ├── Q projection (768×768 = 0.59M)
+    │   ├── K projection (768×768 = 0.59M)
+    │   ├── V projection (768×768 = 0.59M)
+    │   └── O projection (768×768 = 0.59M)
+    │
+    ├── LayerNorm
+    │
+    ├── Feed-Forward Network
+    │   ├── W₁ (768×3072 = 2.36M)
+    │   └── W₂ (3072×768 = 2.36M)
+    │
+    └── LayerNorm
+```
 
-LoRA (r=8):
-- Frozen weights: 14GB (no grad)
-- LoRA weights: ~30MB
-- LoRA optimizer: ~60MB
-- LoRA gradients: ~30MB
-- Total: ~14.12GB
-
-記憶體減少：~4×
+**總參數量**：
+```
+Embeddings:      23.4M + 0.39M = 23.79M
+12 × Attention:  12 × 4 × 0.59M = 28.22M
+12 × FFN:        12 × 2 × 2.36M = 56.45M
+LayerNorm etc:   ≈ 1.5M
+───────────────────────────────────────
+Total:           ≈ 110M
 ```
 
 ---
 
-## 💻 實作細節
+### 在哪些層應用 LoRA？
 
-### 1. LoRA Layer 實作
+**關鍵問題**：110M 參數，該在哪些地方加 LoRA？
 
+**實驗結果**（來自 LoRA 原論文）：
+
+| 應用位置 | 效果 | 參數量 (r=8) | 為什麼？ |
+|---------|------|-------------|---------|
+| 僅 Q, K | 效果差 | 0.3M | 缺少 V 和 O，表達能力不足 |
+| Q, K, V | 較好 | 0.45M | 缺少 output projection |
+| **Q, K, V, O** | **最佳** | **0.6M** | **完整的注意力機制** |
+| Q, K, V, O + FFN | 效果提升不明顯 | 2.4M | FFN 對微調貢獻小，性價比低 |
+| Embedding | 無效 | - | Embedding 是 lookup，非線性變換 |
+| LayerNorm | 有害 | - | 破壞歸一化，導致訓練不穩定 |
+
+**結論**：
+> **最佳實踐**：只在 Attention 的 Q, K, V, O 四個投影層加 LoRA
+
+---
+
+### 為什麼不在 Embedding 和 LayerNorm 加 LoRA？
+
+**Embedding 層**：
 ```python
-import torch
-import torch.nn as nn
+# Embedding 的運作方式
+x = embedding_table[token_ids]  # 這是查表 (lookup)，不是矩陣乘法
 
-class LoRALayer(nn.Module):
-    def __init__(
-        self,
-        in_features: int,
-        out_features: int,
-        rank: int = 8,
-        alpha: float = 16,
-        dropout: float = 0.0,
-    ):
-        super().__init__()
-        self.rank = rank
-        self.alpha = alpha
-
-        # LoRA 可訓練權重
-        self.lora_A = nn.Parameter(torch.zeros(rank, in_features))
-        self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
-
-        # Dropout
-        self.dropout = nn.Dropout(p=dropout) if dropout > 0 else nn.Identity()
-
-        # 初始化
-        nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
-        nn.init.zeros_(self.lora_B)
-
-        # 縮放
-        self.scaling = alpha / rank
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x: (batch, seq_len, in_features)
-        output: (batch, seq_len, out_features)
-        """
-        # LoRA 路徑：x → A → dropout → B
-        lora_out = self.lora_B @ (self.lora_A @ x.T)
-        lora_out = self.dropout(lora_out.T)
-
-        return lora_out * self.scaling
+# 即使加 LoRA
+x = embedding_table[token_ids] + B @ A @ one_hot(token_ids)
+# 沒有意義，因為 one_hot 向量無法有效利用低秩結構
 ```
 
-### 2. 應用到 Linear Layer
-
+**LayerNorm 層**：
 ```python
-class LinearWithLoRA(nn.Module):
-    def __init__(
-        self,
-        linear: nn.Linear,
-        rank: int = 8,
-        alpha: float = 16,
-    ):
-        super().__init__()
-        self.linear = linear
-        self.lora = LoRALayer(
-            linear.in_features,
-            linear.out_features,
-            rank=rank,
-            alpha=alpha,
-        )
+# LayerNorm 公式
+y = (x - mean(x)) / std(x) * γ + β
 
-        # 凍結原始權重
-        self.linear.weight.requires_grad = False
-        if self.linear.bias is not None:
-            self.linear.bias.requires_grad = False
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # 原始輸出 + LoRA 輸出
-        return self.linear(x) + self.lora(x)
-```
-
-### 3. 應用到 Transformer
-
-```python
-def apply_lora_to_model(model, rank=8, alpha=16):
-    """將 LoRA 應用到模型的所有 Linear 層"""
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear):
-            # 通常只對 Q, K, V, O 使用 LoRA
-            if any(key in name for key in ['q_proj', 'k_proj', 'v_proj', 'o_proj']):
-                parent_name = '.'.join(name.split('.')[:-1])
-                child_name = name.split('.')[-1]
-
-                parent = model.get_submodule(parent_name)
-                setattr(
-                    parent,
-                    child_name,
-                    LinearWithLoRA(module, rank=rank, alpha=alpha)
-                )
-    return model
+# 如果對 γ, β 加 LoRA
+y = (x - mean(x)) / std(x) * (γ + BA) + (β + BA)
+# 問題：破壞歸一化的穩定性，導致訓練震盪
 ```
 
 ---
 
-## 🎛️ 超參數調整
+### 完整的參數量計算
 
-### Rank (r)
+**BERT-base 套用 LoRA (r=8) 的參數分布**：
 
-**影響：**
-- ⬆️ 更高的 rank → 更強的表達能力
-- ⬆️ 更高的 rank → 更多參數
-- ⬇️ 過高的 rank → 可能過擬合
+| 層類型 | 數量 | 原始參數 | LoRA 參數 (r=8) | 比例 |
+|-------|------|---------|----------------|------|
+| Q projection | 12 | 12×0.59M=7.08M | 12×12,288=0.147M | 2.08% |
+| K projection | 12 | 12×0.59M=7.08M | 12×12,288=0.147M | 2.08% |
+| V projection | 12 | 12×0.59M=7.08M | 12×12,288=0.147M | 2.08% |
+| O projection | 12 | 12×0.59M=7.08M | 12×12,288=0.147M | 2.08% |
+| **總計 (Attention)** | | **28.32M** | **0.588M** | **2.08%** |
+| Embeddings (凍結) | | 23.79M | 0 | 0% |
+| FFN (凍結) | | 56.45M | 0 | 0% |
+| **全模型** | | **110M** | **0.588M** | **0.53%** |
 
-**經驗法則：**
+**記憶體節省**：
+
 ```
-Small models (< 1B):  r = 4-8
-Medium models (1-7B): r = 8-16
-Large models (> 7B):  r = 16-64
-```
+全參數微調記憶體：
+Weights:          220 MB
+Optimizer states: 440 MB (Adam: momentum + variance)
+Gradients:        220 MB
+───────────────────────
+Total:            880 MB
 
-### Alpha (α)
-
-**影響：**
-- ⬆️ 更高的 α → LoRA 權重影響更大
-- ⬇️ 過高的 α → 可能破壞預訓練知識
-
-**經驗法則：**
-```
-α = r     # 標準設置
-α = 2r    # 增強 LoRA 影響
-α = r/2   # 保守設置
-```
-
-### Dropout
-
-**建議：**
-```
-Small dataset: 0.1-0.2
-Large dataset: 0.0-0.05
+LoRA (r=8) 記憶體：
+Frozen weights:   220 MB (no grad)
+LoRA weights:     1.2 MB
+LoRA optimizer:   2.4 MB
+LoRA gradients:   1.2 MB
+───────────────────────
+Total:            ≈ 225 MB (節省 74%)
 ```
 
 ---
 
-## 📈 效能對比
+## ⚙️ 微調流程概念
 
-### 實驗結果 (論文數據)
-
-| 模型 | 方法 | 參數量 | GLUE Score |
-|------|------|--------|------------|
-| GPT-3 175B | Full FT | 175B | 89.5 |
-| GPT-3 175B | Adapter | 40M | 88.2 |
-| GPT-3 175B | LoRA (r=4) | 4.7M | 89.3 |
-| GPT-3 175B | LoRA (r=64) | 37.7M | **89.7** |
-
-**結論：**
-- ✅ LoRA 用 0.02% 的參數達到全參數微調的效果
-- ✅ 甚至在某些任務上超越全參數微調
+以下是微調 BERT 時引入 LoRA 的**標準步驟概念**
+（不含程式碼，僅教學步驟）：
 
 ---
 
-## 🔍 進階話題
+### 🧩 步驟 1：載入預訓練模型
 
-### 1. LoRA 的理論保證
-
-**假設：** 預訓練模型已經學習了一個高維空間的通用表示
-
-**微調時：** 只需要在這個表示的低維子空間中進行調整
-
-**數學證明：** (簡化版)
-```
-設 W₀ 是預訓練權重
-微調目標：min_W L(W)
-
-泰勒展開：
-L(W₀ + ΔW) ≈ L(W₀) + ∇L(W₀)ᵀΔW + ...
-
-如果 ∇L(W₀) 存在於低秩子空間，
-則 ΔW 也可以低秩表示
-```
-
-### 2. LoRA 與其他方法的關係
-
-```
-Adapter ⊂ LoRA ⊂ Full Fine-tuning
-
-其中：
-- Adapter: 串行架構，增加推論延遲
-- LoRA: 並行架構，零推論延遲
-- Full FT: 所有參數可訓練
-```
-
-### 3. 合併 LoRA 權重
-
-```python
-def merge_lora_weights(model):
-    """訓練後合併 LoRA 權重到原始權重"""
-    for name, module in model.named_modules():
-        if isinstance(module, LinearWithLoRA):
-            # W' = W₀ + BA
-            merged_weight = (
-                module.linear.weight.data +
-                (module.lora.lora_B @ module.lora.lora_A) * module.lora.scaling
-            )
-            module.linear.weight.data = merged_weight
-
-            # 移除 LoRA 層
-            module.lora = nn.Identity()
-```
+* 從 `transformers` 載入 `bert-base-uncased`
+* 凍結所有原始權重（不更新）
 
 ---
 
-## 🧪 實驗建議
+### 🧩 步驟 2：插入 LoRA 模組
 
-### 最佳實踐
+* 在注意力層的 Q, K, V, O 子層中插入 LoRA 結構
 
-1. **選擇合適的層**
-   - ✅ Attention 的 Q, K, V, O
-   - ✅ FFN 的 up_proj, down_proj
-   - ❌ Embedding, LayerNorm
-
-2. **Rank 選擇策略**
-   ```python
-   # 從小開始，逐步增加
-   ranks_to_try = [4, 8, 16, 32]
-
-   for r in ranks_to_try:
-       model = apply_lora(base_model, rank=r)
-       score = evaluate(model)
-       print(f"Rank {r}: {score}")
-   ```
-
-3. **學習率調整**
-   ```python
-   # LoRA 層需要更高的學習率
-   optimizer = AdamW([
-       {'params': lora_params, 'lr': 1e-4},  # LoRA 層
-       {'params': other_params, 'lr': 1e-5}, # 其他層（如果有）
-   ])
-   ```
+  * 每個線性層 ( W₀ ) 旁增加 ( B, A ) 路徑
+  * 實際輸出：
+    [
+    h = W₀x + (α/r)·BAx
+    ]
+* 調整縮放因子 α 控制 LoRA 影響強度
 
 ---
 
-## 📚 延伸閱讀
+### 🧩 步驟 3：設定超參數
 
-### 必讀論文
-
-1. **LoRA 原始論文**
-   - [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685)
-   - Microsoft, 2021
-
-2. **理論分析**
-   - [Intrinsic Dimensionality Explains the Effectiveness of Language Model Fine-Tuning](https://arxiv.org/abs/2012.13255)
-
-3. **改進版本**
-   - [AdaLoRA: Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning](https://arxiv.org/abs/2303.10512)
-   - [QLoRA: Efficient Finetuning of Quantized LLMs](https://arxiv.org/abs/2305.14314)
+| 超參數       | 建議值           | 說明         |
+| --------- | ------------- | ---------- |
+| Rank (r)  | 4–8           | 控制更新空間維度   |
+| Alpha (α) | r 或 2r        | 調整更新強度     |
+| Dropout   | 0.1           | 小資料集時防止過擬合 |
+| 學習率 (lr)  | 1e-4 (LoRA 層) | 可高於傳統微調    |
 
 ---
 
-## ❓ 常見問題
+### 🧩 步驟 4：訓練階段
 
-### Q1: LoRA 會降低模型性能嗎？
-
-**A**: 不一定。在大多數情況下：
-- 小數據集：LoRA 可能更好（避免過擬合）
-- 大數據集：LoRA ≈ Full Fine-tuning
-- 極大數據集：Full Fine-tuning 可能略勝
-
-### Q2: 為什麼 LoRA 有效？
-
-**A**: 核心原因：
-1. **內在維度假說**：任務適應只需要低維子空間
-2. **過擬合防護**：參數限制提供正則化
-3. **預訓練知識保留**：凍結原始權重
-
-### Q3: rank 如何影響效能？
-
-**A**:
-- 太小 (r < 4)：表達能力不足
-- 適中 (r = 8-16)：平衡性能與效率
-- 太大 (r > 64)：邊際收益遞減，接近全參數
+1. 僅更新 LoRA 權重 ( B, A )
+2. 原始模型權重 ( W₀ ) 保持凍結
+3. 使用下游任務資料（如 SST-2、MRPC、QNLI）進行訓練
 
 ---
 
-## 🚀 下一步
+### 🧩 步驟 5：合併或保存權重
 
-完成 LoRA 理論學習後：
+訓練完成後可選兩種方式：
 
-1. ✅ **實作練習**：[Task 01 - LoRA 基礎實作](../lab_tasks/task01_lora_basic/)
-2. 📖 **進階學習**：[QLoRA 與量化](02_qlora_quantization.md)
-3. 🔬 **實驗調參**：嘗試不同 rank 與 alpha 組合
+* **合併模式 (Merge)**
+  將 LoRA 權重合併回原始矩陣 ( W' = W₀ + BA )
+* **輕量部署模式**
+  僅保存 LoRA 權重，推論時疊加使用
 
 ---
 
-<div align="center">
+## 📈 效能與資源對比
 
-**理解原理，掌握實作！💡**
+| 模型        | 方法         | 可訓練參數 | 準確率 (SST-2) | GPU 記憶體 |
+| --------- | ---------- | ----- | ----------- | ------- |
+| BERT-base | 全參數微調      | 110M  | 92.2        | 約 1.6GB |
+| BERT-base | LoRA (r=8) | 0.6M  | **92.0**    | 約 0.4GB |
+| BERT-base | LoRA (r=4) | 0.3M  | 91.7        | 約 0.3GB |
 
-[← 返回總覽](00_overview.md) | [下一篇：QLoRA 量化 →](02_qlora_quantization.md)
+> 🔍 幾乎不損失性能，但顯著減少顯存與計算成本。
 
-</div>
+---
+
+## 🎛️ LoRA 超參數調整指南
+
+| Rank (r) | 訓練速度 | 表達能力 | 適用任務       |
+| -------- | ---- | ---- | ---------- |
+| 4        | 快速   | 較弱   | 小樣本分類      |
+| 8        | 平衡   | 中等   | 一般 GLUE 任務 |
+| 16+      | 較慢   | 強    | 大規模任務      |
+
+| Alpha (α) | LoRA 影響 | 備註     |
+| --------- | ------- | ------ |
+| = r       | 標準設定    | 最常見配置  |
+| = 2r      | 強化效果    | 適合大型數據 |
+| = r/2     | 保守設定    | 適合小樣本  |
+
+---
+
+## 🧩 理論理解總結
+
+1. **低秩假設**：
+   權重更新主要集中在一個低維子空間內。
+
+2. **參數節省**：
+   更新量從 O(d×k) 降為 O(r×(d+k))。
+
+3. **知識保持**：
+   凍結預訓練權重避免遺失通用語言知識。
+
+4. **結構兼容性**：
+   不改變模型推論路徑，可直接整合於任何 Transformer 架構。
+
+---
+
+## 🧪 延伸學習
+
+* **原始論文**：
+  *LoRA: Low-Rank Adaptation of Large Language Models* (Hu et al., 2021, Microsoft Research)
+  [🔗 arXiv:2106.09685](https://arxiv.org/abs/2106.09685)
+
+* **延伸方法**：
+
+  * **QLoRA**：結合 4-bit 量化與 LoRA 微調
+  * **AdaLoRA**：動態分配 rank 預算
+  * **PEFT (Parameter-Efficient Fine-Tuning)**：Hugging Face 的統一框架
+
+---
+
+## 💬 小結 — 你應該能說出：
+
+---
+
+✅ Q1. LoRA 的設計核心是什麼？
+
+A. 將所有權重量化為低精度表示以節省記憶體  
+B. 使用額外的適配器層串接在每個 Transformer Block 後  
+C. 假設權重更新可在低秩子空間中近似，僅訓練少量參數  
+D. 凍結整個模型，只使用輸出層進行再訓練  
+
+---
+
+✅ Q2. 在 BERT-base 中哪些層最適合應用 LoRA？
+
+A. Embedding 與 LayerNorm 層  
+B. Query、Key、Value、Output 等 Attention 投影層  
+C. Pooler 層與分類頭 (Classifier Head)  
+D. 所有線性層皆需加入 LoRA 模組  
+
+---
+
+✅ Q3. LoRA 的 rank 與 alpha 對性能的影響？
+
+A. 增加 rank 可提升模型表達能力，但也會增加參數量  
+B. alpha 必須固定為 1，否則會造成訓練不穩定  
+C. rank 越低，模型必定性能更好  
+D. alpha 與 rank 無關，僅影響推論速度  
+
+---
+
+✅ Q4. LoRA 微調的五個主要步驟？
+
+A. 載入模型 → 加入 LoRA → 凍結所有權重 → 推論 → 儲存結果  
+B. 預處理資料 → 建立 LoRA 層 → 訓練全部參數 → 測試 → 量化  
+C. 載入預訓練模型 → 插入 LoRA 模組 → 設定超參數 → 微調訓練 → 合併或保存權重  
+D. 建立新模型 → 全參數訓練 → 將結果低秩分解 → 儲存更新矩陣  
+
+---
+
+✅ Q5. 為什麼 LoRA 幾乎不損失性能但節省大量資源？
+
+A. 因為 LoRA 以低秩矩陣近似權重更新，減少可訓練參數與記憶體需求  
+B. 因為 LoRA 使用稀疏化壓縮演算法去除不重要權重  
+C. 因為 LoRA 重新訓練整個模型，但只保存部分權重  
+D. 因為 LoRA 動態裁剪掉冗餘層，使模型結構更小  
+
+---
+
+✅ Q6. 若要在實戰中對 BERT-base 應用 LoRA 微調情感分類任務，下列哪項操作是正確的？
+
+A. 在所有線性層套用 LoRA，包含輸入 Embedding  
+B. 只在 Attention 的 Q, K, V, O 層插入 LoRA，凍結其餘權重  
+C. 將 LoRA 層插入到 LayerNorm 中以平衡梯度  
+D. 僅訓練分類頭，不加入 LoRA  
+
+---
+
+✅ Q7. 當 Rank (r) 設為 4 而 alpha = 32 時，LoRA 更新的效果最有可能是？
+
+A. 模型更新幅度過大，導致破壞預訓練知識  
+B. 更新過弱，導致表達能力不足  
+C. 合理擴大 LoRA 更新幅度，有助於中型任務表現  
+D. 完全無影響，alpha 不會影響梯度  
+
+---
+
+✅ Q8. 在部署階段使用 LoRA 微調模型時，下列哪種方式最有效率？
+
+A. 重新訓練全參數模型後再合併 LoRA  
+B. 直接在推論時將 LoRA 權重加回原始權重 (on-the-fly addition)  
+C. 將 LoRA 權重儲存在外部檔案，推論時不載入  
+D. 每次推論都即時計算低秩分解  
+
+---
+
+> **關鍵啟示**
+> LoRA 不僅是一種技巧，而是一種新的微調哲學：
+> **以結構效率換取計算自由。**

@@ -1,0 +1,24 @@
+QLoRA Training Log - Qwen2.5-3B
+============================================================
+
+Model: Qwen/Qwen2.5-3B-Instruct
+Dataset: wikitext/wikitext-2-raw-v1
+Task: Causal Language Modeling
+
+LoRA Config:
+  Rank: 16
+  Alpha: 32.0
+  Dropout: 0.05
+  Target modules: q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj
+
+Training Config:
+  Epochs: 3
+  Batch size: 1
+  Gradient accumulation: 16
+  Learning rate: 0.0002
+
+Results:
+  Final Train Loss: 2.0001
+  Final Eval Loss: nan
+  Final Perplexity: nan
+  Training Time: 140191.46s

@@ -108,7 +108,7 @@ def train_one_epoch(
         # 將資料移到裝置
         input_ids = batch['input_ids'].to(device)
         attention_mask = batch['attention_mask'].to(device)
-        labels = batch['label'].to(device)
+        labels = batch['labels'].to(device)
 
         # 前向傳播
         outputs = model(
@@ -152,7 +152,7 @@ def train_one_epoch(
     return avg_loss, avg_accuracy
 
 
-def evaluate(
+def evaluate_model(
     model: nn.Module,
     dataloader: DataLoader,
     device: torch.device,
@@ -168,7 +168,7 @@ def evaluate(
         for batch in tqdm(dataloader, desc="Evaluating", leave=False):
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
-            labels = batch['label'].to(device)
+            labels = batch['labels'].to(device)
 
             outputs = model(
                 input_ids=input_ids,
@@ -371,7 +371,7 @@ def main(args):
         train_accuracies.append(train_acc)
 
         # 評估
-        eval_loss, eval_acc = evaluate(
+        eval_loss, eval_acc = evaluate_model(
             model=model,
             dataloader=eval_dataloader,
             device=device,

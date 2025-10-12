@@ -358,7 +358,7 @@ def main(args):
         save_total_limit=config['training']['save_total_limit'],
 
         # 評估
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         eval_steps=config['training']['eval_steps'],
 
         # 其他

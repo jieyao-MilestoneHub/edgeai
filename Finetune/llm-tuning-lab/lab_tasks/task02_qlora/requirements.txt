@@ -2,63 +2,63 @@
 # Task 02 - Qwen2.5-3B with 4-bit Quantization
 
 # Core Dependencies
-torch>=2.0.0                # PyTorch 2.0+ (支援 BF16 和 TF32)
-transformers>=4.36.0        # Hugging Face Transformers (支援 BitsAndBytes)
+torch>=2.0.0                # PyTorch 2.0+ (supports BF16 and TF32)
+transformers>=4.36.0        # Hugging Face Transformers (supports BitsAndBytes)
 datasets>=2.14.0            # Hugging Face Datasets
-accelerate>=0.25.0          # 加速訓練與推論
+accelerate>=0.25.0          # Accelerated training and inference
 peft>=0.7.0                 # Parameter-Efficient Fine-Tuning (LoRA)
 
 # Quantization
-bitsandbytes>=0.41.0        # 4-bit/8-bit 量化核心庫
-                            # 重要：需要 CUDA 11.8+ 和相容的 GPU
+bitsandbytes>=0.41.0        # Core library for 4-bit/8-bit quantization
+                            # Important: Requires CUDA 11.8+ and a compatible GPU
 
 # Utilities
-pyyaml>=6.0                 # YAML 配置檔解析
-tqdm>=4.65.0                # 進度條
-numpy>=1.24.0               # 數值計算
-scipy>=1.10.0               # 科學計算（NF4 分位數）
+pyyaml>=6.0                 # YAML configuration file parser
+tqdm>=4.65.0                # Progress bar
+numpy>=1.24.0               # Numerical computation
+scipy>=1.10.0               # Scientific computation (NF4 quantile calculation)
 
 # Visualization
-matplotlib>=3.7.0           # 繪製訓練曲線
-tensorboard>=2.13.0         # TensorBoard 日誌
+matplotlib>=3.7.0           # Plot training curves
+tensorboard>=2.13.0         # TensorBoard logging
 
 # Optional: Performance
-einops>=0.6.1               # Einstein 記號操作（某些模型需要）
-sentencepiece>=0.1.99       # Tokenizer（某些模型需要）
+einops>=0.6.1               # Einstein notation operations (required by some models)
+sentencepiece>=0.1.99       # Tokenizer (required by some models)
 protobuf>=3.20.0            # Protocol Buffers
 
-# Development Tools (可選)
-ipython>=8.12.0             # 互動式 Python shell
+# Development Tools (Optional)
+ipython>=8.12.0             # Interactive Python shell
 jupyter>=1.0.0              # Jupyter Notebook
 black>=23.0.0               # Code formatter
 flake8>=6.0.0               # Linter
 
-# 安裝說明：
-# 1. 基礎安裝（CPU 或已有 CUDA）：
+# Installation Instructions:
+# 1. Basic installation (CPU or existing CUDA setup):
 #    pip install -r requirements.txt
 #
-# 2. GPU 訓練（需要 CUDA 11.8+）：
-#    - 先安裝 PyTorch with CUDA:
-#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-#    - 再安裝其他依賴:
+# 2. GPU training (requires CUDA 11.8+):
+#    - First, install PyTorch with CUDA:
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#    - Then install the remaining dependencies:
 #      pip install -r requirements.txt
 #
-# 3. 驗證安裝：
+# 3. Verify installation:
 #    python -c "import torch; print(torch.cuda.is_available())"
 #    python -c "import bitsandbytes; print('BitsAndBytes OK')"
 #
-# 硬體需求：
-# - GPU: NVIDIA GPU with CUDA support (建議 8GB+ VRAM)
-# - RAM: 16GB+ (推薦 32GB)
-# - 硬碟: 10GB+ 可用空間（模型 + 數據集）
+# Hardware Requirements:
+# - GPU: NVIDIA GPU with CUDA support (recommended 8GB+ VRAM)
+# - RAM: 16GB+ (32GB recommended)
+# - Disk: 10GB+ free space (for model and datasets)
 #
-# 支援的 GPU：
-# - RTX 30 系列: 3060 (12GB), 3070 (8GB), 3080 (10GB/12GB), 3090 (24GB)
-# - RTX 40 系列: 4060 (8GB), 4070 (12GB), 4080 (16GB), 4090 (24GB)
-# - Tesla 系列: V100 (16GB/32GB), A100 (40GB/80GB)
-# - GTX 系列: 1080 Ti (11GB), 1060 (6GB) - 可能需要降低 batch_size
+# Supported GPUs:
+# - RTX 30 Series: 3060 (12GB), 3070 (8GB), 3080 (10GB/12GB), 3090 (24GB)
+# - RTX 40 Series: 4060 (8GB), 4070 (12GB), 4080 (16GB), 4090 (24GB)
+# - Tesla Series: V100 (16GB/32GB), A100 (40GB/80GB)
+# - GTX Series: 1080 Ti (11GB), 1060 (6GB) - may require smaller batch sizes
 #
-# 相容性注意事項：
-# - bitsandbytes 需要 Linux 或 WSL2 (Windows Subsystem for Linux)
-# - Windows 原生支援有限，建議使用 WSL2 或 Docker
-# - macOS 不支援 bitsandbytes（Apple Silicon 可用 MPS，但效果有限）
+# Compatibility Notes:
+# - bitsandbytes requires Linux or WSL2 (Windows Subsystem for Linux)
+# - Limited native support on Windows; WSL2 or Docker is recommended
+# - macOS is not supported by bitsandbytes (Apple Silicon can use MPS, but performance is limited)

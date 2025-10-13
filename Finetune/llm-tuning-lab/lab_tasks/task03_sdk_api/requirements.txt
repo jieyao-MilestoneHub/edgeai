@@ -1,0 +1,27 @@
+# Task 03: SDK & REST API - Python Dependencies
+# ===============================================
+
+# Core web framework
+fastapi>=0.104.0          # Modern web framework with automatic API docs
+uvicorn[standard]>=0.24.0  # ASGI server for FastAPI
+pydantic>=2.4.0           # Data validation and settings management
+
+# HTTP client
+requests>=2.31.0          # HTTP library for SDK client
+urllib3>=2.0.0            # HTTP library used by requests
+
+# Development and testing
+pytest>=7.4.0             # Testing framework
+pytest-asyncio>=0.21.0    # Async support for pytest
+pytest-cov>=4.1.0         # Test coverage plugin
+httpx>=0.25.0             # Async HTTP client for testing
+
+# Code quality
+black>=23.10.0            # Code formatter
+flake8>=6.1.0             # Linting tool
+mypy>=1.6.0               # Static type checker
+
+# Optional: Production enhancements
+# redis>=5.0.0            # For rate limiting (if implemented)
+# celery>=5.3.0           # For background task processing (if implemented)
+# prometheus-client>=0.18.0  # For metrics collection (if implemented)

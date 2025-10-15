@@ -1,9 +1,10 @@
 # Edge AI Learning Path
 
-A shared journey toward becoming **Runtime AI Platform Leaders and AI System Architects**.
-As AI-assisted coding becomes mainstream, we’re diving deeper — into **Edge AI**,
-where models truly run, not just exist.
-No trends. No noise. Just systems that work.
+A collection of **labs, experiments, and overheated machines**.
+No titles, no trends — just hands-on exploration in **Edge AI**,
+where models *run hot*, *fail fast*, and *teach us how to build better systems*.
+
+No hype. No shortcuts. Only labs that work.
 
 ---
 

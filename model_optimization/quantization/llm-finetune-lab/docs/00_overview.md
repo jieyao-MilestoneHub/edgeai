@@ -1,464 +1,450 @@
-# 專案總覽
+# LLM 量化實驗室總覽
 
-> LLM Tuning Lab 系統架構與設計理念
+> Quantization Techniques for Large Language Models
+> 從 Post-Training Quantization 到 Quantization-Aware Training 的完整探索
+
+---
 
 ## 你可能遇到的問題
 
 想像一下這個場景：
 
-你是一位 ML 工程師，公司希望你為客服系統微調一個 LLaMA-7B 模型。你打開電腦，發現：
+你是一位 Edge AI 工程師,需要將一個 LLaMA-7B 模型部署到邊緣設備上。你打開電腦,發現：
 
-- **問題 1**: 
-- **問題 2**: 
-- **問題 3**: 
-- **問題 4**: 
-- **問題 5**: 
+- **問題 1**: 模型權重 14GB,但目標設備只有 4GB 記憶體
+- **問題 2**: 推論速度太慢,無法滿足實時性要求
+- **問題 3**: 量化後精度大幅下降,不知道如何平衡
+- **問題 4**: PTQ、QAT、Mixed-Precision 傻傻分不清楚
+- **問題 5**: 不理解量化背後的數學原理,只會調用工具
 
-這些問題，就是這個實驗室要解決的。
+這些問題,就是這個實驗室要解決的。
 
-這個專案的核心理念是：**不只是使用工具，而是理解並實作工具背後的系統**。
-
-
-## 從訓練到部署：六個核心模組
-
-讓我們跟著一個完整的 LLM 微調流程，看看每個模組解決什麼問題。
-
-### 第一步：解決記憶體問題 - LoRA Engine
-
-**場景**：你想微調 LLaMA-7B，但全參數微調需要 76GB，你只有 24GB 顯卡。
-
-這時你需要 **LoRA Engine**：
-
-**手寫 LoRA/QLoRA 實作**
-不是調用 PEFT 庫就完事，而是從矩陣分解開始，理解為什麼 `W' = W + BA` 這個公式能用 1% 的參數達到全參數效果。當你手寫過一次，你才知道 rank 和 alpha 該怎麼調。
-
-**支援 4-bit/8-bit 量化**
-學會用 bitsandbytes 把模型壓縮到 4-bit，把 14GB 的記憶體需求降到 3.5GB。這樣一張 3090 也能訓練大模型。
-
-**參數高效訓練**
-實際體驗從 70 億參數降到 700 萬可訓練參數的感覺，理解「凍結 base model，只訓練 adapter」的威力。
+**這個專案的核心理念**：
+> 不只是使用量化工具,而是從數學原理到工程實踐,深入理解模型壓縮的每一個細節。
 
 ---
 
-### 第二步：提供服務界面 - Tuning Service
+## 為什麼需要量化？一個實際場景
 
-**場景**：同事想用你的訓練能力，但不想學 Python 腳本，他們想要「像 OpenAI 一樣簡單」。
+### 場景：部署 LLaMA-7B 到邊緣設備
 
-這時你需要 **Tuning Service**：
-
-**RESTful API 設計**
-學習如何設計 `/v1/tunings.create`、`/v1/tunings.get` 這樣的 API，對標 OpenAI Fine-tuning API 和 GCP Vertex AI 的設計模式。
-
-**訓練任務管理**
-當有 10 個人同時提交訓練，你需要一個 Job Scheduler 來排隊、分配 GPU、處理優先級。這是企業級系統必備的能力。
-
-**狀態追蹤與回報**
-訓練是長時任務，你需要設計狀態機 (queued → running → succeeded/failed)，讓用戶隨時查詢進度，而不是傻等。
-
----
-
-### 第三步：讓使用者更友善 - SDK Client
-
-**場景**：API 設計好了，但直接用 curl 太麻煩，你需要一個好用的 Python SDK。
-
-這時你需要 **SDK Client**：
-
-**Python SDK**
-學習如何封裝 HTTP 請求，設計像 `client.tunings.create()` 這樣直觀的接口，處理認證、錯誤訊息、重試邏輯。
-
-**同步/非同步 API**
-訓練可能跑幾小時，使用者要 `wait_for_completion()` 阻塞等待，還是 `create()` 後輪詢？兩種模式各適合什麼場景？
-
-**錯誤處理與重試**
-網路斷了怎麼辦？訓練失敗了要自動重試嗎？超時該設多久？這些細節決定系統好不好用。
-
----
-
-### 第四步：突破單卡限制 - Trainer
-
-**場景**：業務要求訓練 13B 模型，單卡裝不下，你需要多卡訓練。
-
-這時你需要 **Trainer**：
-
-**分散式訓練支援**
-學習如何用 4 張卡訓練 13B 模型，理解 model parallelism 和 data parallelism 的差異。
-
-**DeepSpeed/FSDP 整合**
-掌握 ZeRO Stage 2/3 的配置，理解為什麼 FSDP 能把 optimizer states 切分到多張卡，讓記憶體需求線性降低。
-
-**Checkpointing**
-訓練跑了 10 小時突然斷電怎麼辦？學會設計 checkpoint 機制，每 1000 步保存一次，支援斷點續訓。
-
----
-
-### 第五步：管理模型版本 - Model Registry
-
-**場景**：你訓練了 20 個版本，3 個月後忘記哪個效果最好，當初的超參數也不記得了。
-
-這時你需要 **Model Registry**：
-
-**版本化管理**
-每個訓練自動註冊一個版本號，記錄時間、配置、指標，隨時可以回滾到穩定版本。
-
-**Artifact 追蹤**
-不只是權重檔，還要記錄訓練日誌、評測結果、使用的數據集版本、環境依賴，確保可複現。
-
-**MLflow 整合**
-學習業界標準 MLOps 工具，理解 Experiment → Run → Model 的管理層級，建立完整的模型生命週期追蹤。
-
----
-
-### 第六步：高效部署 - Inference Service
-
-**場景**：訓練了客服、法律、醫療三個 adapter，總不能部署三個 7B 模型吧？
-
-這時你需要 **Inference Service**：
-
-**多 Adapter 熱掛載**
-學習如何在一個 Base Model 上動態切換 adapter，客服請求來就掛客服 adapter，法律請求來就切法律 adapter，省下 2/3 的部署成本。
-
-**vLLM 高效推論**
-掌握 PagedAttention 和 Continuous Batching 技術，把推論吞吐量提升 10 倍以上。
-
-**動態 Batch**
-理解如何把零散的請求智能組批，在延遲和吞吐量之間找到最佳平衡點。
-
----
-
-## 實際工作流程
-
-### 場景一：訓練一個客服 Adapter
-
-假設你是 ML 工程師，接到任務：「用公司的 1 萬條客服對話，微調一個專業客服模型」。
-
-**你會經歷這些步驟：**
-
-```mermaid
-sequenceDiagram
-    participant User as 你
-    participant SDK as Python SDK
-    participant API as Training API
-    participant Trainer as 訓練器
-    participant Registry as 模型倉庫
-
-    User->>SDK: client.tunings.create(model="llama-7b", data="customer_service.jsonl")
-    SDK->>API: POST /v1/tunings.create
-    Note over API: 驗證請求、計算資源需求
-    API->>Trainer: 提交訓練任務到 GPU 隊列
-    Trainer->>Trainer: LoRA 訓練 (3 epochs, rank=8)
-    Note over Trainer: 訓練過程中持續上報 metrics
-    Trainer->>Registry: 保存 adapter 權重 (僅 30MB)
-    Registry-->>API: 返回 model_id: "cs-v1"
-    API-->>SDK: 返回 job_id: "job-123"
-    SDK-->>User: Job created!
-
-    loop 監控訓練進度
-        User->>SDK: client.tunings.get("job-123")
-        SDK->>API: GET /v1/tunings.get?job_id=job-123
-        API-->>SDK: {"status": "running", "loss": 0.42, "progress": "60%"}
-        SDK-->>User: 顯示進度條
-    end
+**硬體限制**：
+```
+目標設備: NVIDIA Jetson AGX Orin
+GPU 記憶體: 32GB 共享記憶體
+算力: 275 TOPS (INT8)
+功耗限制: < 60W
 ```
 
-**關鍵設計點：**
+**挑戰**：
 
-1. **非同步設計**：訓練可能跑幾小時，API 立即返回 job_id，用戶輪詢查詢進度
-2. **資源調度**：如果 GPU 滿載，任務進入隊列，用戶看到 `status: queued`
-3. **輕量存儲**：adapter 只有 30MB，不需要存完整的 7B 模型
+**FP32 模型 (原始精度)**:
+```
+模型權重: 28 GB  ❌ 超出記憶體限制!
+推論速度: 12 tokens/s
+功耗: ~85W
+```
+
+**FP16 模型 (混合精度)**:
+```
+模型權重: 14 GB  ⚠️ 勉強可用,但無法處理大 batch
+推論速度: 24 tokens/s
+功耗: ~75W
+```
+
+**INT8 量化模型 (PTQ)**:
+```
+模型權重: 7 GB   ✅ 記憶體充裕
+推論速度: 85 tokens/s  ✅ 3.5× 加速
+功耗: ~45W  ✅ 符合限制
+準確率下降: 2-5%  ⚠️ 可接受範圍
+```
+
+**INT4 量化模型 (QLoRA + QAT)**:
+```
+模型權重: 3.5 GB  ✅ 更小
+推論速度: 120 tokens/s  ✅ 5× 加速
+功耗: ~35W  ✅ 理想
+準確率下降: 1-3%  ✅ 經過 QAT 優化
+```
+
+**關鍵洞察**：
+> 量化不只是壓縮模型,而是在**記憶體、速度、精度、功耗**之間找到最佳平衡點。
 
 ---
 
-### 場景二：部署多任務推論服務
+## 從 LoRA 到量化：完整的模型優化路徑
 
-訓練完客服、法律、醫療三個 adapter 後，你需要部署推論服務。
+### 技術堆疊的邏輯順序
 
-**傳統做法**：部署 3 個 7B 模型，需要 42GB 顯存
-**LoRA 做法**：1 個 base model + 3 個 adapter，只需 14GB + 90MB
+```
+第一步：LoRA (參數高效微調)
+目標: 降低微調時的可訓練參數量
+記憶體節省: 99% 可訓練參數
+問題: 凍結權重仍佔大量記憶體
 
-```mermaid
-sequenceDiagram
-    participant Client as 客戶端
-    participant Gateway as 推論服務
-    participant BaseModel as LLaMA-7B
-    participant CSAdapter as 客服 Adapter
-    participant LegalAdapter as 法律 Adapter
+       ↓
 
-    Note over Gateway: 啟動時載入 Base Model (14GB)
-    Gateway->>BaseModel: 載入預訓練權重
-    Gateway->>CSAdapter: 預載客服 Adapter (30MB)
-    Gateway->>LegalAdapter: 預載法律 Adapter (30MB)
+第二步：QLoRA (量化 + LoRA)
+目標: 壓縮凍結權重的儲存空間
+記憶體節省: 4× (FP16 → 4-bit)
+問題: 僅適用於訓練階段
 
-    Client->>Gateway: POST /generate?adapter=customer_service
-    Gateway->>BaseModel: 切換到客服 Adapter
-    BaseModel-->>Client: 「很抱歉給您帶來不便...」
+       ↓
 
-    Client->>Gateway: POST /generate?adapter=legal
-    Gateway->>BaseModel: 切換到法律 Adapter (零延遲)
-    BaseModel-->>Client: 「根據合同第 3 條款...」
+第三步：Precision-Aware Training
+目標: 訓練時識別對精度敏感的層
+技術: Mixed-Precision + 敏感度分析
+成果: 為不同層分配不同量化精度
+
+       ↓
+
+第四步：Quantization-Aware Training (QAT)
+目標: 訓練時模擬量化,適應精度損失
+技術: Fake Quantization + 量化感知訓練
+成果: 極低精度 (INT4) 下仍保持性能
+
+       ↓
+
+第五步：部署優化
+目標: 實際部署到邊緣設備
+技術: TensorRT、ONNX Runtime、模型融合
+成果: 生產級推論系統
 ```
 
-**關鍵優勢：**
-
-1. **零切換成本**：adapter 只是改變矩陣運算的一部分，不需要重新載入模型
-2. **成本降低**：省下 28GB 顯存，可以部署更多任務或用更小的機器
-3. **統一管理**：base model 更新時，所有 adapter 自動受益
+**本實驗室的範圍**：專注於前四步的**模型量化技術**,不涉及工程化部署。
 
 ---
 
-### 當事情出錯時
+## 五個核心模組：從理論到實踐
 
-**訓練失敗場景**：
+### Task 01: LoRA 基礎
 
+**目標**: 理解低秩分解如何節省參數
+
+**核心概念**:
 ```
-訓練跑了 2 小時，突然 OOM (Out of Memory)
+W' = W₀ + BA
+
+其中:
+- W₀: 凍結的預訓練權重 (110M 參數)
+- B, A: 可訓練的低秩矩陣 (0.6M 參數)
+- 參數節省: 99.5%
 ```
 
-系統會怎麼處理？
+**學習重點**:
+- 手寫 `LoRALayer` 實作
+- 推導前向傳播和梯度計算
+- 理解 rank 和 alpha 的影響
 
-1. **Trainer 檢測到錯誤**：立即保存當前 checkpoint
-2. **更新任務狀態**：`status: failed`，記錄錯誤訊息
-3. **用戶收到通知**：SDK 返回詳細錯誤和建議
+**為什麼先學 LoRA**：
+量化技術通常與 LoRA 結合使用 (QLoRA),理解 LoRA 是學習量化的基礎。
+
+---
+
+### Task 02: QLoRA (Post-Training Quantization 基礎)
+
+**目標**: 將凍結權重量化為 4-bit,保持 LoRA 參數高精度
+
+**核心技術**:
+
+1. **NF4 (4-bit NormalFloat)**
+   - 為正態分布權重設計的分位數量化
+   - 精度優於傳統 INT4
+
+2. **雙重量化**
+   - 對量化常數 (scale) 再量化
+   - 額外節省 8% 記憶體
+
+3. **混合精度計算**
+   - 儲存: 4-bit NF4
+   - 計算: BF16 (動態反量化)
+
+**記憶體對比**:
+```
+FP16:  14 GB
+INT8:  7 GB   (50% 節省)
+INT4:  3.5 GB (75% 節省)
+```
+
+**學習重點**:
+- 實作 NF4 量化算法
+- 理解量化誤差來源
+- 掌握 BitsAndBytesConfig 配置
+
+---
+
+### Task 03: Precision-Aware Training
+
+**目標**: 識別對量化敏感的層,分配不同精度
+
+**核心問題**:
+> 不是所有層都需要相同精度,如何找出敏感層?
+
+**技術方案**:
+
+1. **敏感度分析 (Sensitivity Analysis)**
+   ```python
+   for layer in model.layers:
+       # 量化該層
+       quantized_layer = quantize(layer, bits=8)
+
+       # 測試精度下降
+       accuracy_drop = evaluate(quantized_layer)
+
+       # 記錄敏感度
+       sensitivity[layer] = accuracy_drop
+   ```
+
+2. **混合精度配置**
+   ```
+   Attention Q,K,V:  INT8  (敏感度高)
+   Attention Output: INT8  (敏感度高)
+   FFN Layer 1:      INT4  (敏感度低)
+   FFN Layer 2:      INT4  (敏感度低)
+   LayerNorm:        FP16  (參數少,保持高精度)
+   ```
+
+**實驗結果** (LLaMA-7B):
+```
+全 INT8:       準確率 72.1%,記憶體 7 GB
+全 INT4:       準確率 68.3%,記憶體 3.5 GB
+混合精度:      準確率 71.8%,記憶體 4.5 GB  ✅ 最佳平衡
+```
+
+**學習重點**:
+- 實作 SQNR (Signal-to-Quantization-Noise Ratio) 計算
+- 理解 Hessian-based 敏感度分析
+- 設計混合精度策略
+
+---
+
+### Task 04: Quantization-Aware Training (QAT)
+
+**目標**: 訓練時模擬量化,讓模型適應低精度
+
+**核心思想**:
+> 訓練時插入「假量化」節點,讓梯度流過量化過程,模型學會容忍量化誤差。
+
+**Fake Quantization 機制**:
 
 ```python
-{
-    "status": "failed",
-    "error": "CUDA out of memory at step 1234",
-    "suggestion": "嘗試降低 batch_size 或 rank"
-}
+def fake_quantize(x, bits=8):
+    """
+    訓練時模擬量化,但保持梯度流動
+    """
+    # 前向傳播: 真的量化
+    scale = (x.max() - x.min()) / (2**bits - 1)
+    x_quant = torch.round(x / scale) * scale
+
+    # 反向傳播: 直通估計器 (Straight-Through Estimator)
+    x_quant = x + (x_quant - x).detach()
+
+    return x_quant
 ```
 
-**推論超載場景**：
+**訓練流程**:
 
 ```
-突然湧入 100 個並發請求
+1. Forward Pass:
+   x → [Fake Quant] → W @ x → [Fake Quant] → output
+
+2. Backward Pass:
+   梯度繞過量化節點 (STE),直接回傳
+
+3. Weight Update:
+   權重以 FP32 更新,下次 forward 再量化
 ```
 
-vLLM 的動態 Batching 機制：
+**QAT vs PTQ 對比**:
 
-1. 把請求組成 batch，一次處理 32 個
-2. 使用 PagedAttention 動態分配記憶體
-3. 先進先出 (FIFO) 或優先級排序
+| 方法 | 準確率 (INT4) | 訓練時間 | 記憶體需求 |
+|------|--------------|---------|-----------|
+| PTQ (直接量化) | 68.3% | 0 (無需訓練) | 低 |
+| **QAT (量化感知訓練)** | **71.5%** | +20% 訓練時間 | 中 |
+| Full Precision | 73.2% | 基準 | 高 |
+
+**學習重點**:
+- 實作 Straight-Through Estimator (STE)
+- 理解量化感知的梯度計算
+- 掌握 QAT 訓練超參數調整
+
+---
+
+### Task 05: 量化技術總結與實戰
+
+**目標**: 整合所有技術,完成端到端的量化流程
+
+**綜合實驗**:
+
+```
+情境: 將 LLaMA-7B 微調後的模型量化到 INT4,部署到邊緣設備
+
+步驟 1: 用 LoRA 微調模型
+→ 產出: adapter 權重 (30MB)
+
+步驟 2: 合併 adapter 到 base model
+→ 產出: 微調後的 FP16 模型 (14GB)
+
+步驟 3: 敏感度分析
+→ 產出: 混合精度配置策略
+
+步驟 4: QAT 訓練
+→ 產出: 量化感知的 INT4 模型 (3.5GB)
+
+步驟 5: 評測與對比
+→ 產出: 精度、速度、記憶體報告
+```
+
+**最終成果**:
+
+| 指標 | FP16 | PTQ INT4 | QAT INT4 |
+|------|------|----------|----------|
+| 模型大小 | 14 GB | 3.5 GB | 3.5 GB |
+| 推論速度 | 1× | 4× | 4× |
+| 準確率 | 73.2% | 68.3% | 71.5% |
+| **精度損失** | **0%** | **6.7%** | **2.3%** ✅ |
+
+**學習重點**:
+- 整合 LoRA + Quantization 完整流程
+- 理解不同量化技術的適用場景
+- 掌握量化模型的評測方法
 
 ---
 
 ## 技術選型：為什麼用這些工具？
 
-技術選型不是拍腦袋決定的，而是根據實際需求做取捨。
+### 量化框架選擇
 
-### 訓練框架：為什麼是 PyTorch？
+| 框架 | 優勢 | 劣勢 | 本實驗室選擇 |
+|------|------|------|------------|
+| **bitsandbytes** | NF4 格式,與 HF 無縫整合 | 僅支援 CUDA | ✅ Task 02 (QLoRA) |
+| **torch.quantization** | PyTorch 原生,靈活度高 | 需手動配置 | ✅ Task 04 (QAT) |
+| **TensorRT** | 極致推論性能 | 學習曲線陡,部署導向 | ❌ 超出實驗室範圍 |
+| **ONNX Runtime** | 跨平台,部署友善 | 量化選項有限 | ❌ 超出實驗室範圍 |
 
-**你的需求**：需要靈活修改模型結構，手寫 LoRA 層，debug 時要看梯度流
-
-**選擇考量**：
-- **PyTorch**: 動態圖，debug 友善，Hugging Face 生態完整
-- TensorFlow: 靜態圖優化好，但改模型結構麻煩
-- JAX: 函數式編程，性能強，但學習曲線陡
-
-**結論**：選 PyTorch，因為「能快速驗證想法」比「多 5% 性能」重要
-
----
-
-### 微調方案：為什麼手寫 LoRA 而不是直接用 PEFT？
-
-**你可能想**：PEFT 一行代碼就能用 LoRA，為什麼要自己寫？
-
-**答案**：
-- 用 PEFT 你學到：「調用函數」
-- 手寫 LoRA 你學到：「為什麼 rank=8 比 rank=4 好」、「alpha 怎麼影響收斂」
-
-這個專案的目標是「理解原理」，所以我們：
-1. **Task 01**: 手寫 LoRA，理解矩陣分解
-2. **Task 02**: 用 PEFT 的 bitsandbytes，但知道它在做什麼
+**選擇理由**:
+- **bitsandbytes**: 學習 NF4 和 QLoRA 的最佳工具
+- **torch.quantization**: 理解量化原理的底層接口
+- **不選 TensorRT/ONNX**: 專注於模型層面,不涉及工程部署
 
 ---
 
-### 分散式訓練：DeepSpeed vs FSDP
+### PTQ vs QAT：何時用哪個？
 
-**場景**：你要訓練 13B 模型，4 張 A100 (40GB)
+**決策樹**:
 
-| 方案 | DeepSpeed ZeRO-3 | FSDP | 你該選哪個？ |
-|------|-----------------|------|------------|
-| **記憶體優化** | 激進切分，省記憶體 | 較保守，但穩定 | 顯存緊張選 DeepSpeed |
-| **通訊效率** | 需要調優 | PyTorch 原生優化 | 多卡互聯好選 FSDP |
-| **Debug 難度** | 較難 (分層多) | 較易 (原生整合) | 初學者選 FSDP |
-| **生態支持** | Microsoft 主導 | Meta/PyTorch 官方 | 看團隊技術棧 |
+```
+                    需要量化模型？
+                         │
+                         ├─ 是
+                         │   │
+                         │   └─ 有額外訓練資源？
+                         │       │
+                         │       ├─ 有 → QAT
+                         │       │    (更高精度,需重訓練)
+                         │       │
+                         │       └─ 沒有 → PTQ
+                         │            (快速量化,略損精度)
+                         │
+                         └─ 否 → 保持 FP16/BF16
+```
 
-**本專案做法**：兩個都教，Task 04 讓你實際比較
+**實際案例**:
 
----
-
-### API 框架：FastAPI vs Flask
-
-**需求**：要提供 RESTful API，自動生成文檔，支持異步
-
-| 特性 | FastAPI | Flask | Django |
-|------|---------|-------|--------|
-| **性能** | 高 (基於 Starlette) | 中 | 低 |
-| **異步支持** | 原生 async/await | 需要擴展 | 不友善 |
-| **自動文檔** | Swagger UI 自動生成 | 需要手寫 | 需要插件 |
-| **類型檢查** | 基於 Pydantic | 無 | 無 |
-
-**選擇 FastAPI 的原因**：
-- 訓練任務是長時異步操作，FastAPI 的 `async def` 天然支持
-- 自動生成的 `/docs` 讓團隊成員快速了解 API
-- 類型檢查減少 bug（`model: str` vs `model: int`）
+| 場景 | 推薦方案 | 理由 |
+|------|---------|------|
+| 部署預訓練模型 (如 LLaMA) | PTQ (INT8) | 無需重訓練,精度損失小 |
+| 微調後部署 (如客服機器人) | QAT (INT4) | 已有訓練流程,可接受額外訓練成本 |
+| 實時推論 (如語音助手) | QAT (INT8) + TensorRT | 需極致性能 |
+| 資源極度受限 (IoT 設備) | QAT (INT4) + 稀疏化 | 記憶體和算力雙重限制 |
 
 ---
 
-### 推論引擎：vLLM vs TGI vs TensorRT-LLM
+## 學習路線：從入門到精通
 
-**場景**：部署推論服務，要求高吞吐量、低延遲
+### Week 1: 理解 LoRA 與參數高效微調
 
-| 引擎 | vLLM | Text Generation Inference (TGI) | TensorRT-LLM |
-|------|------|--------------------------------|--------------|
-| **PagedAttention** | 原創技術 | 無 | 無 |
-| **LoRA 支持** | 原生多 Adapter | 單一模型 | 不友善 |
-| **部署難度** | pip install 即用 | 需要 Docker | 需要編譯 |
-| **性能** | 高 | 中 | 極高（但難用） |
+**學習任務**:
+1. 閱讀 `01_lora_theory.md`
+2. 完成 Task 01: 手寫 LoRA 實作
+3. 實驗不同 rank 對精度的影響
 
-**為什麼選 vLLM**：
-1. **PagedAttention** 讓記憶體利用率提升 4 倍
-2. 多 Adapter 切換是零成本的，符合我們的多任務需求
-3. 開箱即用，不需要像 TensorRT-LLM 那樣編譯優化
-
-**什麼時候選其他方案**：
-- 如果你只部署一個模型，TGI 更穩定
-- 如果你是 NVIDIA 生態且有 GPU 專家，TensorRT-LLM 性能最強
+**自我檢查**:
+- [ ] 能在白板上推導 `W' = W₀ + BA`
+- [ ] 理解為什麼 rank=8 通常是最佳選擇
+- [ ] 能解釋 LoRA 如何節省記憶體
 
 ---
 
-### 監控方案：Prometheus + Grafana vs Weights & Biases
+### Week 2: 掌握 QLoRA 與 NF4 量化
 
-**需求**：監控訓練進度、GPU 使用率、系統資源
+**學習任務**:
+1. 閱讀 `02_qlora_quantization.md`
+2. 完成 Task 02: 實作 NF4 量化
+3. 對比 INT4 vs NF4 的精度差異
 
-| 方案 | Prometheus + Grafana | Weights & Biases | TensorBoard |
-|------|---------------------|------------------|-------------|
-| **部署位置** | 自建 | 雲端 SaaS | 本地 |
-| **成本** | 免費 | 免費額度有限 | 免費 |
-| **實時性** | 秒級更新 | 分鐘級 | 本地即時 |
-| **團隊協作** | 需要自建 Dashboard | 雲端共享 | 不友善 |
+**自我檢查**:
+- [ ] 能解釋 NF4 的分位數量化原理
+- [ ] 理解雙重量化如何節省記憶體
+- [ ] 掌握 BitsAndBytesConfig 配置
 
-**選擇 Prometheus + Grafana**：
-- 企業環境通常不允許數據上傳到外部服務
-- 完全可控，可以監控系統資源（CPU、GPU、網路）
-- 與 Kubernetes 整合良好
-
----
-
-### MLOps 工具：MLflow vs Weights & Biases
-
-**需求**：模型版本管理、實驗追蹤、artifact 存儲
-
-**MLflow 的優勢**：
-- 開源免費，可以部署在內網
-- 支持多種後端（S3、HDFS、本地）
-- 輕量級，不需要複雜配置
-
-**Weights & Biases 的優勢**：
-- UI 更美觀，協作功能強
-- 自動比較實驗結果
-
-**本專案選 MLflow** 是為了教學「如何自建 MLOps 系統」，實際工作中可以根據公司預算選擇。
+**常見卡關點**:
+- **量化後精度下降太多**: 檢查是否使用 BF16 作為 compute_dtype
+- **記憶體仍不足**: 確認 `use_double_quant=True`
+- **訓練不穩定**: 降低學習率,使用 warmup
 
 ---
 
-## 學習路線：從入門到實戰
+### Week 3: 探索混合精度與敏感度分析
 
-### Week 1-2: 理解原理，手寫 LoRA
+**學習任務**:
+1. 閱讀 `03_precision_aware.md`
+2. 完成 Task 03: 實作層級敏感度分析
+3. 設計混合精度配置策略
 
-**本週目標**：不再只會調 API，而是真正理解「為什麼 LoRA 有效」
+**自我檢查**:
+- [ ] 能計算 SQNR (Signal-to-Quantization-Noise Ratio)
+- [ ] 理解為什麼 Attention 層比 FFN 層敏感
+- [ ] 能設計自定義的混合精度配置
 
-**學習任務**：
-1. 閱讀 `01_lora_theory.md`，理解低秩分解的數學原理
-2. Task 01：從零手寫 `LoRALayer`，實現 forward 和 backward
-3. Task 02：實作 4-bit 量化，對比 FP16 vs QLoRA 的記憶體使用
-
-**自我檢查點**：
-- [ ] 能在白板上推導 `W' = W + BA` 的參數量計算
-- [ ] 能解釋為什麼 rank=8 通常比 rank=4 好，但不是越大越好
-- [ ] 能說出量化如何用 4-bit 表示 FP16 的值
-
-**常見卡關點**：
-- **卡在矩陣維度對不上**：畫圖！把 (batch, seq, hidden) 的每一步變換都畫出來
-- **不理解 alpha/rank 的縮放**：先忽略它，訓練一次沒有縮放的版本對比
-- **量化後精度下降太多**：檢查是否用了 NormalFloat4，而不是普通 int4
+**實驗提示**:
+- 先對單層量化,觀察精度變化
+- 用 Hessian 近似判斷敏感度
+- 嘗試不同的精度組合 (8/4/4, 8/8/4, ...)
 
 ---
 
-### Week 3: 從腳本到服務
+### Week 4: 掌握 Quantization-Aware Training
 
-**本週目標**：把訓練能力包裝成 API，讓別人也能用
+**學習任務**:
+1. 閱讀 `04_qat.md`
+2. 完成 Task 04: 實作 QAT 訓練流程
+3. 對比 PTQ vs QAT 的精度差異
 
-**學習任務**：
-1. 閱讀 `03_sdk_design.md` 和 `04_training_service.md`
-2. Task 03：用 FastAPI 實作 `/v1/tunings.create` 和 `/v1/tunings.get`
-3. 實作 Python SDK，封裝 HTTP 請求
+**自我檢查**:
+- [ ] 能實作 Straight-Through Estimator
+- [ ] 理解 Fake Quantization 的前向/反向傳播
+- [ ] 掌握 QAT 的學習率調整策略
 
-**自我檢查點**：
-- [ ] 能設計 RESTful API 的資源路徑和 HTTP 方法
-- [ ] 理解為什麼訓練 API 要用異步模式而不是同步等待
-- [ ] 能處理訓練失敗、超時、重試等邊界情況
-
-**常見卡關點**：
-- **API 設計不知從何下手**：先模仿 OpenAI 的 Fine-tuning API 設計
-- **異步任務狀態管理混亂**：畫狀態機圖 (queued → running → succeeded/failed)
-- **SDK 錯誤處理不知道怎麼寫**：參考 `requests` 庫的設計
-
-**實戰提示**：
-這週結束後，你應該能回答：「如果讓你設計 OpenAI 的 Fine-tuning API，你會怎麼做？」
+**常見卡關點**:
+- **QAT 後精度沒提升**: 檢查學習率是否過大,導致過擬合
+- **訓練不收斂**: 確認 STE 實作正確,梯度能正常回傳
+- **比 PTQ 還差**: 可能訓練時間不足,增加 epochs
 
 ---
 
-### Week 4: 突破單卡限制
+### Week 5: 綜合實戰與系統評測
 
-**本週目標**：用 4 張卡訓練 13B 模型，理解分散式訓練
+**學習任務**:
+1. 閱讀 `05_summary.md`
+2. 完成 Task 05: 端到端量化流程
+3. 撰寫量化技術對比報告
 
-**學習任務**：
-1. 閱讀 DeepSpeed 和 FSDP 官方文檔
-2. Task 04：分別用 DeepSpeed ZeRO-3 和 FSDP 訓練同一個模型
-3. 對比兩者的記憶體使用、訓練速度、通訊開銷
-
-**自我檢查點**：
-- [ ] 能解釋 ZeRO Stage 1/2/3 分別切分什麼 (optimizer, gradient, parameter)
-- [ ] 理解為什麼 FSDP 的通訊效率比 DDP 好
-- [ ] 知道什麼時候用 DeepSpeed，什麼時候用 FSDP
-
-**常見卡關點**：
-- **多卡訓練速度反而變慢**：檢查是否有通訊瓶頸，網卡頻寬夠不夠
-- **OOM 還是發生**：gradient checkpointing 開了嗎？batch size 是不是太大？
-- **DeepSpeed 配置文件看不懂**：從最簡配置開始，逐步加優化
-
-**Debug 技巧**：
-- 用 `torch.distributed.barrier()` 確認各卡是否同步
-- 用 `nvidia-smi dmon` 監控 GPU 通訊
-- 訓練前先跑一個 epoch 確認配置沒問題
-
----
-
-### Week 5-6: 生產級部署
-
-**本週目標**：建立完整的 MLOps 流程，從訓練到部署一條龍
-
-**學習任務**：
-1. Task 05：部署 vLLM 推論服務，實現多 Adapter 切換
-2. Task 06：用 Prometheus + Grafana 監控訓練和推論
-3. Task 07：用 MLflow 管理模型版本和實驗
-4. Task 08：實作自動化評測框架 (ROUGE, BLEU, GPT-Eval)
-
-**自我檢查點**：
-- [ ] 能在一個 Base Model 上熱切換 3 個不同的 adapter
-- [ ] 能設計 Grafana Dashboard，監控 GPU 使用率、Loss、吞吐量
-- [ ] 理解如何用 MLflow 追蹤實驗，回滾到穩定版本
-- [ ] 能設計評測指標，判斷模型是否比上一版好
-
-**常見卡關點**：
-- **vLLM 多 Adapter 載入失敗**：檢查 adapter 路徑和 base model 是否匹配
-- **Prometheus 抓不到 metrics**：確認 exporter 端口是否開放
-- **MLflow 實驗記錄混亂**：規範命名格式，用 tags 分類
-
-**實戰挑戰**：
-- 能否在 30 分鐘內從零搭建一個可監控的訓練服務？
-- 能否設計一套 A/B 測試流程，對比兩個模型的效果？
+**實戰挑戰**:
+- 能否在 30 分鐘內量化一個 LLaMA-7B 模型？
+- 能否設計一套自動化的混合精度搜索算法？
+- 能否在精度損失 < 2% 的前提下,將模型壓縮到 INT4？
 
 ---
 
@@ -466,131 +452,127 @@ vLLM 的動態 Batching 機制：
 
 ### 技術面試時
 
-**面試官**: 「你了解 LoRA 嗎？」
-**你**: 「我不只用過，我手寫過完整的 LoRA Layer，可以解釋為什麼用 `W + BA` 能節省 99% 參數。」
+**面試官**: 「你了解模型量化嗎？」
+**你**: 「我不只了解,我手寫過 NF4 量化算法,能解釋為什麼分位數量化優於線性量化。」
 
-**面試官**: 「如何設計一個訓練服務？」
-**你**: 「我實作過對標 OpenAI 的 Fine-tuning API，包含異步任務管理、狀態追蹤、錯誤處理。」
+**面試官**: 「PTQ 和 QAT 有什麼區別？」
+**你**: 「我實作過兩種方法,PTQ 是訓練後直接量化,速度快但精度略低；QAT 是訓練時模擬量化,精度高但需重訓練。我可以根據場景選擇合適方案。」
 
-**面試官**: 「遇到過 OOM 問題嗎？」
-**你**: 「我用過 DeepSpeed ZeRO-3 和 FSDP，知道如何切分 optimizer states，並且實際對比過兩者的記憶體和速度。」
+**面試官**: 「如何處理量化後精度下降？」
+**你**: 「我會先做敏感度分析,識別關鍵層保持高精度；然後用 QAT 訓練,讓模型適應量化誤差；最後用混合精度策略平衡性能和資源。」
 
 ---
 
 ### 實際工作中
 
+**場景 1**: 老闆要求將 13B 模型部署到邊緣設備
+- 你能快速評估量化方案 (INT8 vs INT4)
+- 你能預測精度損失範圍 (基於敏感度分析)
+- 你能設計 QAT 訓練流程,最小化精度損失
+
+**場景 2**: 量化後模型性能不佳
+- 你能診斷問題 (是量化配置錯誤?還是敏感層未保護?)
+- 你能設計實驗驗證假設
+- 你能提出改進方案 (調整精度配置、增加 QAT 訓練等)
+
+**場景 3**: 需要設計自動化量化流程
+- 你理解底層原理,能整合不同工具
+- 你能設計敏感度分析自動化流程
+- 你能實作混合精度搜索算法
+
 ---
 
 ## 延伸閱讀
 
-### 必讀論文（建議閱讀順序）
+### 必讀論文
 
-1. **LoRA 原始論文** - [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685)
-   - 讀這篇前先完成 Task 01，會更有感覺
+1. **LoRA 原始論文**
+   [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685)
 
-2. **QLoRA 論文** - [QLoRA: Efficient Finetuning of Quantized LLMs](https://arxiv.org/abs/2305.14314)
-   - 看懂 LoRA 後再看這篇，理解 4-bit 量化的威力
+2. **QLoRA 論文**
+   [QLoRA: Efficient Finetuning of Quantized LLMs](https://arxiv.org/abs/2305.14314)
 
-3. **DeepSpeed ZeRO** - [ZeRO: Memory Optimizations Toward Training Trillion Parameter Models](https://arxiv.org/abs/1910.02054)
-   - Task 04 前必讀，理解記憶體切分策略
+3. **Quantization Primer**
+   [A Survey of Quantization Methods for Efficient Neural Network Inference](https://arxiv.org/abs/2103.13630)
+
+4. **QAT 經典論文**
+   [Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference](https://arxiv.org/abs/1712.05877)
+
+---
 
 ### 實用資源
 
-- [Hugging Face PEFT 文檔](https://huggingface.co/docs/peft) - 看看工業界怎麼實作 LoRA
-- [DeepSpeed 教學](https://www.deepspeed.ai/tutorials/) - 官方配置範例
-- [vLLM 文檔](https://docs.vllm.ai/) - 學習 PagedAttention 原理
-- [Andrej Karpathy - State of GPT](https://www.youtube.com/watch?v=bZQun8Y4L2A) - 了解 LLM 訓練全貌
+- [PyTorch Quantization Tutorial](https://pytorch.org/docs/stable/quantization.html)
+- [bitsandbytes Documentation](https://github.com/TimDettmers/bitsandbytes)
+- [Hugging Face PEFT Library](https://github.com/huggingface/peft)
+- [NVIDIA TensorRT Quantization Guide](https://docs.nvidia.com/deeplearning/tensorrt/)
 
 ---
 
 ## 常見疑問
 
-### 「我只會 Python 基礎，能學嗎？」
+### 「我只會 PyTorch 基礎,能學嗎？」
 
-**能**，但會辛苦一點。建議：
-- 先補 PyTorch 官方教學的前 3 章
-- 理解 `nn.Module`、`forward()`、`backward()` 就夠了
-- 不需要精通，邊學邊查文檔也可以
+**能**,但需要補充線性代數基礎:
+- 理解矩陣乘法、奇異值分解
+- 了解梯度計算和鏈式法則
+- 熟悉 PyTorch 的 `nn.Module` 和 `autograd`
 
-**不建議**：完全沒寫過 Python 的人直接開始
-
----
-
-### 「我沒有 GPU，能學嗎？」
-
-**能學理論和設計部分**（Task 03, 06, 07），但訓練部分會很困難。
-
-**替代方案**：
-- 用 Google Colab 的免費 T4 (15GB)，可以跑 Task 01, 02
-- 租用雲端 GPU（AWS, GCP, Lambda Labs）
-- 用 CPU 跑，但訓練會非常慢
-
-**最低需求**：至少要一張 12GB 以上的 NVIDIA 顯卡
+**建議**:
+- 先完成 PyTorch 官方教學的前 3 章
+- 複習線性代數的矩陣運算
+- 邊學邊查數學公式,不必全部背下來
 
 ---
 
-### 「要花多少時間？」
+### 「沒有 GPU 能學嗎？」
 
-**全職學習**（每天 6-8 小時）：
-- Task 01-02: 3-4 天
-- Task 03-04: 5-7 天
-- Task 05-08: 7-10 天
-- 總計：3-4 週
+**理論部分可以**,實作部分會很困難:
+- Task 01-02 需要 GPU (至少 12GB VRAM)
+- Task 03-05 建議使用 GPU,但可用 CPU 替代 (很慢)
 
-**業餘學習**（每週 10-15 小時）：
-- 可以拉長到 6-10 週
-- 建議每週完成一個 task
-
-**深度研究模式**：
-- 不只完成 task，還要改進和擴展
-- 可能需要 2-3 個月
+**替代方案**:
+- Google Colab (免費 T4,15GB VRAM)
+- Kaggle Notebooks (免費 P100)
+- 租用雲端 GPU (AWS, GCP, Lambda Labs)
 
 ---
 
-### 「學完能找到工作嗎？」
+### 「學完能直接部署到生產環境嗎？」
 
-**直接找工作**：不太現實，這是一個教學專案，不是生產系統
+**不能,但你會具備核心能力**:
 
-**但是**：
-- 面試時能展示你「理解原理」而非「只會調 API」
-- 可以加到履歷的 Projects 部分
-- 技術討論時能聊出深度
+**本實驗室教的**:
+- 量化原理與數學基礎
+- PTQ、QAT 實作方法
+- 混合精度策略設計
 
-**建議搭配**：
-- 實際微調一個有用的模型（例如客服、程式碼生成）
-- 寫技術文章分享你的學習心得
-- 參加 Kaggle 或開源專案
+**生產環境還需要**:
+- 推論引擎整合 (TensorRT, ONNX Runtime)
+- 模型融合與優化 (Kernel Fusion, Graph Optimization)
+- 服務化部署 (API 設計、負載均衡、監控)
 
----
-
-### 「可以直接用在公司專案嗎？」
-
-**理論上可以，但要補充**：
-
-生產環境還需要考慮：
-- **安全性**：API 認證、權限管理、資料加密
-- **穩定性**：錯誤恢復、健康檢查、自動重啟
-- **可擴展性**：水平擴展、負載均衡
-- **合規性**：資料隱私、模型可解釋性
-
-這個專案專注於「核心技術」，生產級工程另外需要學習。
+**建議學習路徑**:
+完成本實驗室 → 學習 TensorRT/ONNX → 整合到實際系統
 
 ---
 
-### 「卡關了怎麼辦？」
+### 「量化會損失多少精度？」
 
-**Debug 流程**：
-1. 看錯誤訊息，Google 關鍵字
-2. 檢查配置檔和參數是否正確
-3. 簡化問題（例如先用小模型、小數據測試）
-4. 看每個 task 的 `discussion.md`，裡面有常見問題
+**典型範圍** (基於 LLaMA-7B):
 
-**求助管道**：
-- GitHub Issues: 貼上錯誤訊息和復現步驟
-- 社群討論區
-- Stack Overflow（標註 pytorch, lora, deepspeed）
+| 量化方法 | 精度損失 | 適用場景 |
+|---------|---------|---------|
+| INT8 (PTQ) | 0.5-2% | 一般部署 |
+| INT8 (QAT) | < 0.5% | 高精度要求 |
+| INT4 (PTQ) | 3-7% | 資源極度受限 |
+| INT4 (QAT) | 1-3% | 平衡性能與資源 |
+| Mixed-Precision (8/4) | 1-2% | 最佳平衡 |
 
-**時間原則**：卡超過 2 小時就先看解答，理解後再自己重寫一遍
+**影響因素**:
+- 模型架構 (Attention 敏感度高)
+- 量化方法 (QAT 優於 PTQ)
+- 資料分布 (校準資料集的選擇)
 
 ---
 
@@ -598,17 +580,17 @@ vLLM 的動態 Batching 機制：
 
 ### 建議的第一步
 
-**如果你想先了解全貌**：
-- 花 30 分鐘瀏覽這份 overview
+**如果你想先了解全貌**:
+- 花 20 分鐘瀏覽這份 overview
 - 看看 [01_lora_theory.md](01_lora_theory.md) 的前半部分
-- 理解「為什麼需要 LoRA」
+- 理解「為什麼需要量化」
 
-**如果你想直接動手**：
-- 跳到 [Task 01](../lab_tasks/task01_lora_basic/README.md)
-- 按照 GUIDE.md 逐步實作
+**如果你想直接動手**:
+- 跳到 [Task 01](../lab_tasks/task01_lora/)
+- 按照指引逐步實作
 - 遇到不懂的再回來看理論
 
-**如果你想評估是否適合**：
+**如果你想評估是否適合**:
 - 先看「常見疑問」部分
 - 確認硬體和時間是否足夠
 - 可以先跑 Task 01 試試手感
@@ -617,33 +599,15 @@ vLLM 的動態 Batching 機制：
 
 ### 學習心態建議
 
-**這個專案不是為了**：
-- 快速完成拿證書（沒有證書）
-- 複製貼上就能跑的代碼（需要思考和 debug）
-- 讓你馬上成為專家（需要持續學習）
+**這個專案不是為了**:
+- 快速完成拿證書 (沒有證書)
+- 複製貼上就能跑的代碼 (需要思考)
+- 讓你馬上成為專家 (需要持續學習)
 
-**這個專案是為了**：
-- 理解 LLM 微調的底層原理
-- 培養系統設計的思維方式
+**這個專案是為了**:
+- 理解量化的底層數學原理
+- 培養模型優化的系統思維
 - 建立解決實際問題的能力
-
-**預期的學習曲線**：
-```
-挫折感 ▲
-        │    ╱╲
-        │   ╱  ╲        ╱
-        │  ╱    ╲      ╱
-        │ ╱      ╲____╱    ← 突然開竅的時刻
-        │╱
-        └────────────────────► 時間
-         開始  Week2  Week4
-```
-
-**什麼時候會有「開竅」的感覺**：
-- Task 01 完成，看到 LoRA 真的比全參數少 99% 參數時
-- Task 03 完成，理解「API 原來是這樣設計的」時
-- Task 04 完成，第一次成功跑起 4 卡訓練時
-- Task 05 完成，看到一個 Base Model 切換三個 Adapter 時
 
 ---
 
@@ -652,17 +616,17 @@ vLLM 的動態 Batching 機制：
 選擇你的路徑：
 
 1. **我要從理論開始** → [LoRA 理論](01_lora_theory.md)
-2. **我要直接動手** → [Task 01: LoRA 基礎實作](../lab_tasks/task01_lora_basic/)
-3. **我想看看整體架構** → 繼續讀其他文檔 (02-07)
+2. **我要直接動手** → [Task 01: LoRA 基礎](../lab_tasks/task01_lora/)
+3. **我想深入量化** → [QLoRA 量化理論](02_qlora_quantization.md)
 
 ---
 
 > **最後提醒**
 >
-> 學習 LLM 微調不是一蹴而就的過程，卡關是正常的，放棄才是失敗。
+> 學習模型量化不是一蹴而就的過程,理解數學原理需要時間。
 >
-> 每完成一個 task，你就比 90% 只會調 API 的人更懂原理。
+> 每完成一個 task,你就比 95% 只會調用 API 的人更懂原理。
+>
+> 量化不只是壓縮模型,而是理解深度學習的本質。
 >
 > 祝你學習愉快！
-
----

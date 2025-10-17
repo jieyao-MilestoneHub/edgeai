@@ -528,7 +528,7 @@ Activations:      6 GB
 
 ### Paged Optimizers 原理
 
-**靈感來源**: 操作系統的虛擬記憶體分頁機制。
+**靈感來源**: 作業系統的虛擬記憶體分頁機制。
 
 **核心思想**:
 - 將 optimizer states 分成固定大小的「頁」(page, 通常 2048 個參數)

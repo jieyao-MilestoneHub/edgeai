@@ -15,7 +15,7 @@ QLoRA 量化與 LoRA 工具函數
 - Gradient Checkpointing: 節省記憶體的反向傳播技術
 - Paged Optimizer: CPU-GPU 分頁管理，降低記憶體峰值
 
-作者: LLM Tuning Lab
+作者: Joel
 授權: MIT
 """
 

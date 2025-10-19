@@ -1,0 +1,109 @@
+# Task 03: Engineering Agent - QLoRA Fine-tuning Configuration
+# 基礎配置模板
+
+# ==================== Model Configuration ====================
+model:
+  name: "Qwen/Qwen2.5-3B-Instruct"
+  # 模型來源：Hugging Face Hub
+  # Qwen2.5-3B-Instruct: 適合 RTX 4060 8GB，指令遵循能力強
+
+# ==================== Quantization Configuration ====================
+quantization:
+  load_in_4bit: true
+  quant_type: "nf4"                    # NF4 (4-bit NormalFloat)
+  compute_dtype: "bfloat16"            # 計算時使用 BF16
+  use_double_quant: true               # 雙重量化，節省額外 8% 記憶體
+
+# ==================== LoRA Configuration ====================
+lora:
+  rank: 16                             # LoRA rank (低秩維度)
+  alpha: 32.0                          # 縮放因子 (通常 = 2 × rank)
+  dropout: 0.05                        # Dropout 比例
+  bias: "none"                         # Bias 類型: none, all, lora_only
+  task_type: "CAUSAL_LM"              # 任務類型
+  target_modules:                      # 目標模組
+    - "q_proj"                         # Query projection
+    - "k_proj"                         # Key projection
+    - "v_proj"                         # Value projection
+    - "o_proj"                         # Output projection
+    - "gate_proj"                      # Gate projection (MLP)
+    - "up_proj"                        # Up projection (MLP)
+    - "down_proj"                      # Down projection (MLP)
+
+# ==================== Data Configuration ====================
+data:
+  # 通用指令集 (OpenHermes-2.5)
+  general_dataset: "teknium/OpenHermes-2.5"
+  general_samples: 20000               # 取樣數量
+
+  # 技術領域知識集 (ScienceQA + PubMedQA)
+  tech_dataset_1: "derek-thomas/ScienceQA"
+  tech_dataset_2: "pubmed_qa"
+  tech_dataset_2_config: "pqa_labeled"
+  tech_samples: 5000                   # 總取樣數量 (兩個數據集合計)
+
+  # 過濾關鍵字 (engineering 相關)
+  filter_keywords:
+    - "engineering"
+    - "circuit"
+    - "semiconductor"
+    - "design"
+    - "algorithm"
+    - "optimization"
+    - "system"
+    - "architecture"
+
+  # 數據處理
+  max_length: 512                      # 最大序列長度
+  preprocessing_num_proc: 4            # 預處理進程數
+
+  # 分割比例
+  train_split: "train"
+  eval_split: "test"
+  test_size: 0.1                       # 驗證集比例
+
+# ==================== Training Configuration ====================
+training:
+  # 訓練輪數
+  num_epochs: 3
+
+  # Batch 設定
+  batch_size: 1                        # RTX 4060 (8GB) 建議 1
+  gradient_accumulation_steps: 16      # 梯度累積 (有效 batch = 1 × 16 = 16)
+
+  # 學習率
+  learning_rate: 2.0e-4                # LoRA 建議學習率
+  weight_decay: 0.01                   # 權重衰減
+  warmup_ratio: 0.1                    # Warmup 比例
+  lr_scheduler_type: "cosine"          # 學習率調度器
+
+  # 精度設定
+  fp16: false                          # FP16 混合精度
+  bf16: true                           # BF16 混合精度 (推薦)
+
+  # 優化器
+  optim: "paged_adamw_8bit"           # 8-bit AdamW (節省記憶體)
+  max_grad_norm: 1.0                   # 梯度裁剪
+
+  # 記憶體優化
+  gradient_checkpointing: true         # 梯度檢查點 (節省 30-50% 記憶體)
+
+  # 日誌與儲存
+  logging_steps: 10                    # 日誌記錄頻率
+  save_steps: 500                      # 模型儲存頻率
+  eval_steps: 500                      # 評估頻率
+  save_total_limit: 2                  # 最多保留檢查點數量
+
+# ==================== Output Configuration ====================
+output:
+  dir: "output_task03_exp_base"        # 輸出目錄
+  overwrite_output_dir: true           # 覆寫輸出目錄
+  logging_dir: "logs"                  # TensorBoard 日誌目錄
+  save_training_curves: true           # 儲存訓練曲線
+  save_training_log: true              # 儲存訓練日誌
+
+# ==================== Advanced Configuration ====================
+advanced:
+  seed: 42                             # 隨機種子
+  allow_tf32: true                     # 啟用 TF32 (Ampere+ GPU)
+  ddp_find_unused_parameters: false    # 分散式訓練設定

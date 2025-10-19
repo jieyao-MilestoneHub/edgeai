@@ -1,0 +1,22 @@
+# Experiment 6: LoRA Rank 32, Attention + MLP
+# 目標：測試最大參數配置的效果上限
+
+lora:
+  rank: 32
+  alpha: 64.0
+  dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  target_modules:                      # Attention + MLP
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+output:
+  dir: "output_task03_exp6_r32_full"
+  overwrite_output_dir: true
+  logging_dir: "logs/exp6_r32_full"

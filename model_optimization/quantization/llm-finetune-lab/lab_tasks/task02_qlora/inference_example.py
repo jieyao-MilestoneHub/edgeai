@@ -8,7 +8,7 @@ QLoRA Inference Example - Qwen2.5-3B Text Generation
 2. Demo (範例模式): 展示預設範例的生成結果
 3. Text (單次生成): 對單一 prompt 進行生成
 
-作者: LLM Tuning Lab
+作者: Joel
 授權: MIT
 """
 

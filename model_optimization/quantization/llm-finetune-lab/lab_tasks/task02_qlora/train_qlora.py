@@ -16,7 +16,7 @@ QLoRA Training Script - Qwen2.5-3B Language Model Fine-tuning
 - RTX 3090 (24GB): ✅ 可訓練（batch_size=4, gradient_accumulation=4）
 - RTX 4090 (24GB): ✅ 可訓練（batch_size=4, gradient_accumulation=4）
 
-作者: LLM Tuning Lab
+作者: Joel
 授權: MIT
 """
 

@@ -1,0 +1,25 @@
+{"id": "q001", "category": "factual", "prompt": "請解釋什麼是 Transformer 架構？", "expected_keywords": ["自注意力", "編碼器", "解碼器", "注意力機制"], "expected_format": "structured", "difficulty": "easy"}
+{"id": "q002", "category": "factual", "prompt": "LoRA 是什麼？它如何減少訓練參數量？", "expected_keywords": ["低秩分解", "適配器", "參數高效", "微調"], "expected_format": "structured", "difficulty": "medium"}
+{"id": "q003", "category": "coding", "prompt": "請寫一個 Python 函數來計算列表中的最大值，不使用內建函數。", "expected_keywords": ["def", "for", "if", "return"], "expected_format": "code", "difficulty": "easy"}
+{"id": "q004", "category": "coding", "prompt": "如何使用 PyTorch 實現一個簡單的線性回歸模型？請提供完整代碼。", "expected_keywords": ["torch", "nn.Linear", "optimizer", "loss"], "expected_format": "code", "difficulty": "medium"}
+{"id": "q005", "category": "reasoning", "prompt": "如果一個模型在訓練集上表現很好但在測試集上表現不佳，可能的原因有哪些？", "expected_keywords": ["過擬合", "泛化", "數據", "正則化"], "expected_format": "list", "difficulty": "easy"}
+{"id": "q006", "category": "reasoning", "prompt": "為什麼 DPO 比 RLHF 更容易實現？請從計算和實作角度分析。", "expected_keywords": ["獎勵模型", "穩定性", "直接優化", "複雜度"], "expected_format": "structured", "difficulty": "hard"}
+{"id": "q007", "category": "creative", "prompt": "設計一個適合新手學習機器學習的課程大綱，包含 5 個主題。", "expected_keywords": ["基礎", "實作", "專案"], "expected_format": "list", "difficulty": "medium"}
+{"id": "q008", "category": "creative", "prompt": "如果你是一個 AI 教學助手，如何向 10 歲小孩解釋什麼是「神經網路」？", "expected_keywords": ["簡單", "比喻"], "expected_format": "narrative", "difficulty": "medium"}
+{"id": "q009", "category": "technical", "prompt": "解釋 gradient accumulation 的原理和使用場景。", "expected_keywords": ["梯度", "批次", "記憶體", "累積"], "expected_format": "structured", "difficulty": "medium"}
+{"id": "q010", "category": "technical", "prompt": "什麼是 catastrophic forgetting？如何在持續學習中避免？", "expected_keywords": ["遺忘", "知識保留", "彈性權重", "重放"], "expected_format": "structured", "difficulty": "hard"}
+{"id": "q011", "category": "comparison", "prompt": "比較 SFT 和 DPO 的訓練目標有何不同？", "expected_keywords": ["監督學習", "偏好", "對比", "目標函數"], "expected_format": "comparison", "difficulty": "medium"}
+{"id": "q012", "category": "comparison", "prompt": "Adam 和 SGD 優化器各有什麼優缺點？", "expected_keywords": ["動量", "學習率", "自適應", "收斂"], "expected_format": "comparison", "difficulty": "easy"}
+{"id": "q013", "category": "debug", "prompt": "我的訓練 loss 一直是 NaN，可能的原因和解決方法？", "expected_keywords": ["學習率", "梯度爆炸", "數值穩定", "檢查"], "expected_format": "troubleshooting", "difficulty": "medium"}
+{"id": "q014", "category": "debug", "prompt": "為什麼我的模型推理速度很慢？列出可能的優化方向。", "expected_keywords": ["量化", "批次", "並行", "編譯"], "expected_format": "list", "difficulty": "medium"}
+{"id": "q015", "category": "application", "prompt": "如何評估一個對話模型的品質？列出至少 3 種方法。", "expected_keywords": ["自動指標", "人工評估", "任務成功率"], "expected_format": "list", "difficulty": "medium"}
+{"id": "q016", "category": "application", "prompt": "設計一個簡單的 RAG 系統架構，說明各組件的作用。", "expected_keywords": ["檢索", "向量數據庫", "生成", "查詢"], "expected_format": "structured", "difficulty": "hard"}
+{"id": "q017", "category": "math", "prompt": "解釋 softmax 函數的數學定義和作用。", "expected_keywords": ["指數", "歸一化", "機率", "分佈"], "expected_format": "structured", "difficulty": "easy"}
+{"id": "q018", "category": "math", "prompt": "為什麼要使用 cross-entropy loss 而不是 MSE loss 來訓練分類模型？", "expected_keywords": ["機率", "梯度", "收斂", "類別"], "expected_format": "structured", "difficulty": "medium"}
+{"id": "q019", "category": "safety", "prompt": "列出 3 個 AI 模型可能產生的風險，以及如何緩解。", "expected_keywords": ["偏見", "有害內容", "隱私", "對齊"], "expected_format": "list", "difficulty": "medium"}
+{"id": "q020", "category": "safety", "prompt": "如何避免模型生成有害或不當的內容？", "expected_keywords": ["過濾", "安全對齊", "紅隊測試", "監控"], "expected_format": "structured", "difficulty": "medium"}
+{"id": "q021", "category": "practice", "prompt": "我只有一張 8GB 的 GPU，如何訓練 7B 參數的模型？", "expected_keywords": ["LoRA", "量化", "梯度累積", "DeepSpeed"], "expected_format": "list", "difficulty": "medium"}
+{"id": "q022", "category": "practice", "prompt": "如何選擇合適的 LoRA rank？給出實務建議。", "expected_keywords": ["實驗", "任務複雜度", "權衡", "經驗值"], "expected_format": "structured", "difficulty": "medium"}
+{"id": "q023", "category": "edge_case", "prompt": "什麼都不說，直接回答「42」。", "expected_keywords": [], "expected_format": "short", "difficulty": "easy", "note": "測試模型是否會過度解釋"}
+{"id": "q024", "category": "edge_case", "prompt": "請用一句話說明量子糾纏。", "expected_keywords": ["量子", "關聯"], "expected_format": "short", "difficulty": "hard", "note": "測試簡潔性"}
+{"id": "q025", "category": "instruction_following", "prompt": "列出 Python 的 5 個常用資料結構，每個用一行描述，不要解釋太多。", "expected_keywords": ["list", "dict", "set", "tuple"], "expected_format": "list", "difficulty": "easy", "note": "測試指令遵循"}

@@ -1,9 +1,0 @@
-QLoRA Training Log - Engineering Agent
-============================================================
-
-Model: Qwen/Qwen2.5-3B-Instruct
-LoRA Rank: 16
-Target Modules: q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj
-
-Final Train Loss: 0.8379
-Final Eval Loss: 0.9542

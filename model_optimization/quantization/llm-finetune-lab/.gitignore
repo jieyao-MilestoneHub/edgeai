@@ -57,6 +57,11 @@ cache/
 *.csv
 *.jsonl
 *.parquet
+train/
+test/
+filtered_data/
+final_dataset/
+output_task03_exp4_r16_full/
 
 # Outputs
 output/

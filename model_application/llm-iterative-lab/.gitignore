@@ -3,3 +3,4 @@ final_dataset/
 
 logs/
 output_task03_exp4_r16_full/
+__pycache__/

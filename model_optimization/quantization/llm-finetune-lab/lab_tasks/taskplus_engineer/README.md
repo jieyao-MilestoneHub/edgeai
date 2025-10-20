@@ -140,9 +140,9 @@ python run_all_experiments.py
 cd evaluation
 
 # 評估訓練好的模型
-python evaluate_model.py \
-  --model_path ../output_task03_exp4_r16_full \
-  --test_cases test_cases.yaml \
+python evaluate_model.py `
+  --model_path ../model_training/output_task03_exp4_r16_full `
+  --test_cases test_cases.yaml `
   --output exp4_evaluation_report.json
 ```
 

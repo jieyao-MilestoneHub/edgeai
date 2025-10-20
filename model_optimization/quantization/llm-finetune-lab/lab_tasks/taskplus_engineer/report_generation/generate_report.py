@@ -18,7 +18,7 @@ from datetime import datetime
 
 def load_experiment_results():
     """載入實驗結果"""
-    results_path = Path("../3_experiments/results/comparison_table.csv")
+    results_path = Path("../experiments/results/comparison_table.csv")
 
     if results_path.exists():
         return pd.read_csv(results_path)
@@ -30,7 +30,7 @@ def load_evaluation_results():
     """載入評估結果"""
     eval_results = []
 
-    eval_dir = Path("../4_evaluation")
+    eval_dir = Path("../evaluation")
     for eval_file in eval_dir.glob("*_evaluation_report.json"):
         with open(eval_file, 'r', encoding='utf-8') as f:
             eval_results.append(json.load(f))

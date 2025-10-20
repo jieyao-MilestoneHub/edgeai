@@ -51,7 +51,7 @@ mlruns/
 tensorboard/
 
 # Data
-data/
+# data/
 datasets/
 cache/
 *.csv

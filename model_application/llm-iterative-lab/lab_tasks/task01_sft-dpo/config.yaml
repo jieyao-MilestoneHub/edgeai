@@ -1,0 +1,92 @@
+# Enterprise Qwen2.5-3B SFT+DPO Joint Optimization - Main Configuration
+# 企業級 Qwen2.5-3B 指令微調 + 偏好對齊聯合優化 - 主配置文件
+
+# ==================== Task Configuration ====================
+task_type: "sft"  # Options: "sft", "dpo", "iterative"
+
+# ==================== Model Configuration ====================
+model:
+  name: "Qwen/Qwen2.5-3B"  # Base model (NOT Instruct variant)
+  trust_remote_code: true
+  use_flash_attention: false
+
+# ==================== Quantization Configuration (QLoRA) ====================
+quantization:
+  load_in_4bit: true
+  quant_type: "nf4"
+  compute_dtype: "bfloat16"
+  use_double_quant: true
+
+# ==================== LoRA Configuration ====================
+lora:
+  rank: 16
+  alpha: 32.0
+  dropout: 0.05
+  bias: "none"
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+
+# ==================== Data Configuration ====================
+data:
+  max_length: 512
+  train_file: "data_preparation/final_dataset"  # For SFT
+  eval_file: null
+  test_size: 0.1
+  preprocessing_num_proc: 4
+
+# ==================== Training Configuration ====================
+training:
+  output_dir: "experiments/default"
+  num_epochs: 3
+  batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  lr_scheduler_type: "cosine"
+  fp16: false
+  bf16: true
+  optim: "paged_adamw_8bit"
+  max_grad_norm: 1.0
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 500
+  eval_steps: 500
+  save_total_limit: 2
+  seed: 42
+
+# ==================== DPO Configuration (for DPO/Iterative tasks) ====================
+dpo:
+  beta: 0.1
+  label_smoothing: 0.0
+  loss_type: "sigmoid"
+  reference_free: false
+  max_length: 512
+  max_prompt_length: 256
+
+# ==================== Iterative Training Configuration ====================
+iterative:
+  num_iterations: 3
+  sft_epochs_per_iter: 2
+  dpo_epochs_per_iter: 1
+  annotation_samples_per_iter: 100
+  evaluation_threshold: 0.7
+
+# ==================== Hybrid Training Configuration ====================
+# Closed-loop: 數據收集 → SFT → DPO(條件觸發) → 評估 → 數據收集 → ...
+hybrid:
+  num_iterations: 10             # Maximum closed-loop iterations
+  sft_steps_per_iteration: 100   # SFT steps per iteration
+  preference_batch_size: 5       # Trigger micro-DPO every N pairs
+  micro_dpo_steps: 50            # Training steps per micro-DPO session
+  micro_dpo_lr: 0.00005          # Learning rate for micro-DPO (5e-5)
+  quality_threshold: 0.7         # Minimum quality score for preference pairs
+  preference_data_file: null     # Path to preference pairs JSONL file
+  evaluation_interval: 1         # Evaluate every N iterations
+  evaluation_threshold: 0.95     # Stop if eval score >= threshold

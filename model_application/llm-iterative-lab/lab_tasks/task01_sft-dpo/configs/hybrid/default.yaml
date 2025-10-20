@@ -1,0 +1,74 @@
+# Hybrid Training Configuration - Closed Loop
+# 混合訓練配置：數據收集 → SFT → DPO(條件觸發) → 評估 → 數據收集 → ...
+
+# ==================== Task Configuration ====================
+task_type: "hybrid"
+
+# ==================== Hybrid Closed-Loop Configuration ====================
+hybrid:
+  # Maximum number of closed-loop iterations
+  # 閉環最大迭代次數
+  num_iterations: 10
+
+  # SFT training steps per iteration
+  # 每次迭代的 SFT 訓練步數
+  sft_steps_per_iteration: 100
+
+  # Number of preference pairs to trigger one micro-DPO session
+  # 累積多少偏好對後觸發一次微型 DPO
+  preference_batch_size: 5
+
+  # Maximum training steps for each micro-DPO run
+  # 每次微型 DPO 的最大訓練步數（建議 50-100）
+  micro_dpo_steps: 50
+
+  # Learning rate for micro-DPO (typically lower than SFT)
+  # 微型 DPO 的學習率（通常比 SFT 小 4-10 倍）
+  micro_dpo_lr: 0.00005  # 5e-5
+
+  # Quality threshold for accepting preference pairs
+  # 偏好對的品質閾值（0-1，僅接受高於此值的樣本）
+  quality_threshold: 0.7
+
+  # Path to preference pairs JSONL file
+  # 偏好對數據文件路徑（JSONL 格式）
+  preference_data_file: "data/preference/example_preference_pairs.jsonl"
+
+  # Evaluate every N iterations (0 = no evaluation)
+  # 每 N 次迭代進行一次評估（0 = 不評估）
+  evaluation_interval: 1
+
+  # Stop training if evaluation score >= threshold
+  # 當評估分數達到此閾值時停止訓練
+  evaluation_threshold: 0.95
+
+# ==================== Training Configuration ====================
+# These are the settings for main SFT phase
+training:
+  output_dir: "experiments/hybrid_default"
+  num_epochs: 3
+  batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  lr_scheduler_type: "cosine"
+  fp16: false
+  bf16: true
+  optim: "paged_adamw_8bit"
+  max_grad_norm: 1.0
+  gradient_checkpointing: true
+  logging_steps: 10
+  save_steps: 500
+  eval_steps: 500
+  save_total_limit: 2
+  seed: 42
+
+# ==================== DPO Configuration ====================
+# Settings for micro-DPO sessions
+dpo:
+  beta: 0.1  # DPO temperature
+  label_smoothing: 0.0
+  loss_type: "sigmoid"
+  max_length: 512
+  max_prompt_length: 256

@@ -1,0 +1,25 @@
+# Iterative SFT+DPO Training Configuration
+# 迭代式 SFT+DPO 聯合訓練配置
+
+task_type: "iterative"
+
+lora:
+  rank: 16
+  alpha: 32.0
+
+training:
+  output_dir: "experiments/iterative/run_1"
+
+data:
+  train_file: "data_preparation/final_dataset"  # Initial SFT data
+
+iterative:
+  num_iterations: 3
+  sft_epochs_per_iter: 2
+  dpo_epochs_per_iter: 1
+  annotation_samples_per_iter: 100
+  evaluation_threshold: 0.75
+
+dpo:
+  beta: 0.1
+  loss_type: "sigmoid"

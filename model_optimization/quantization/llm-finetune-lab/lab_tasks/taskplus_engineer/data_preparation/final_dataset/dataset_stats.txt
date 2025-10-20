@@ -1,0 +1,42 @@
+Dataset Statistics
+============================================================
+
+Train samples: 18405
+Test samples: 2046
+Total samples: 20451
+
+Columns:
+  - custom_instruction
+  - topic
+  - model_name
+  - model
+  - skip_prompt_formatting
+  - category
+  - conversations
+  - views
+  - language
+  - id
+  - title
+  - idx
+  - hash
+  - avatarUrl
+  - system_prompt
+  - source
+  - instruction
+  - input
+  - output
+  - image
+  - question
+  - choices
+  - answer
+  - hint
+  - task
+  - grade
+  - subject
+  - skill
+  - lecture
+  - solution
+  - pubid
+  - context
+  - long_answer
+  - final_decision

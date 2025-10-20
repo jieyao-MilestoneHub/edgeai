@@ -1,0 +1,22 @@
+# DPO Training Configuration - LoRA Rank 16
+# 偏好對齊配置 - LoRA 秩 16
+
+task_type: "dpo"
+
+lora:
+  rank: 16
+  alpha: 32.0
+
+training:
+  output_dir: "experiments/dpo/r16"
+  num_epochs: 2
+  learning_rate: 0.00005  # DPO typically uses lower LR
+
+data:
+  train_file: "data/preference"  # Preference pairs dataset
+
+dpo:
+  beta: 0.1
+  loss_type: "sigmoid"
+  max_length: 512
+  max_prompt_length: 256

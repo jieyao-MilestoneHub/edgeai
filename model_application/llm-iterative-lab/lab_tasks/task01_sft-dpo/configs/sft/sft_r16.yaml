@@ -1,0 +1,16 @@
+# SFT Training Configuration - LoRA Rank 16
+# 指令微調配置 - LoRA 秩 16
+
+task_type: "sft"
+
+lora:
+  rank: 16
+  alpha: 32.0
+
+training:
+  output_dir: "experiments/sft/r16_full"
+  num_epochs: 3
+  learning_rate: 0.0002
+
+data:
+  train_file: "data_preparation/final_dataset"

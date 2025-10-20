@@ -208,20 +208,6 @@ print(dataset['train'][0])
 
 ## ⚠️ 常見問題
 
-### Q: 下載速度很慢？
-
-**A**:
-- 使用 Hugging Face 鏡像（中國用戶）
-- 或使用 VPN
-- 數據集會自動快取，只需下載一次
-
-### Q: PubMedQA 下載失敗？
-
-**A**:
-- PubMedQA 可能有訪問限制
-- 如果失敗，會自動跳過，只使用 ScienceQA
-- 不影響整體流程
-
 ### Q: 過濾後數據太少？
 
 **A**:
@@ -257,6 +243,6 @@ def format_custom_dataset(dataset):
 完成資料準備後，前往訓練模組：
 
 ```bash
-cd ../2_model_training
+cd ../model_training
 python train_qwen_instruct.py
 ```

@@ -1,155 +1,151 @@
+Sure! Here's the full translation of your content into English:
+
+---
+
 # LLM Iterative Lab
 
-> 模型不是訓練一次就完成的。
-> 這裡探索的是如何讓模型在持續的數據與反饋中進化。
+> A model isn’t finished after just one training run.
+> Here, we explore how a model evolves through continuous data and feedback.
 
 ---
 
-## 專案簡介
+## Project Overview
 
-本實驗室專注於 **LLM 迭代優化** (Iterative Optimization) 的理論與實踐。
+This lab focuses on the **theory and practice of LLM iterative optimization**.
 
-當你完成一次模型訓練後，真正的挑戰才剛開始：
-- 如何從新數據中持續學習？
-- 如何在多輪訓練中保持穩定？
-- 如何設計自動化的優化流程？
-- 如何讓模型在反饋循環中自我改進？
+Once you complete a model training session, the real challenge begins:
 
-這個實驗室提供完整的學習路徑，從單次訓練走向迭代優化，從固定流程走向閉環系統。
+* How can it continue learning from new data?
+* How do you maintain stability across multiple training rounds?
+* How do you design an automated optimization process?
+* How can a model improve itself through feedback loops?
 
----
-
-## 核心主題
-
-- **迭代訓練設計**：多輪訓練的流程設計與數據管理
-- **偏好對齊**：從人類反饋中學習並調整模型行為
-- **閉環優化**：自動化的數據收集、訓練、評估循環
-- **條件觸發機制**：根據數據累積或評估結果動態調整訓練策略
-- **工程實踐**：如何在資源受限下建立可持續的優化系統
+This lab provides a complete learning path — from one-time training to iterative optimization, from fixed pipelines to closed-loop systems.
 
 ---
 
-## 為什麼需要迭代優化？
+## Core Topics
 
-單次訓練的局限：
-- ✗ 數據是靜態的，無法反映真實使用情境的變化
-- ✗ 模型能力受限於初始數據的品質與多樣性
-- ✗ 無法從部署後的反饋中學習
-- ✗ 難以針對特定問題進行精細調整
-
-迭代優化的價值：
-- ✓ 持續從新數據中學習，適應變化的需求
-- ✓ 透過多輪訓練逐步提升模型能力
-- ✓ 建立數據 → 訓練 → 評估 → 改進的閉環
-- ✓ 自動化流程，減少人工干預
+* **Iterative Training Design**: Designing multi-round training workflows and managing data
+* **Preference Alignment**: Learning from human feedback to adjust model behavior
+* **Closed-Loop Optimization**: Automating the data → training → evaluation → improvement cycle
+* **Trigger Mechanisms**: Dynamically adjusting training strategies based on data accumulation or evaluation results
+* **Engineering Practice**: Building sustainable optimization systems under resource constraints
 
 ---
 
-## 實驗室結構
+## Why Iterative Optimization?
+
+Limitations of one-time training:
+
+* ✗ Static data can’t reflect real-world usage changes
+* ✗ Model capabilities are limited by the quality and diversity of initial data
+* ✗ No learning from post-deployment feedback
+* ✗ Difficult to fine-tune for specific problems
+
+Benefits of iterative optimization:
+
+* ✓ Continuously learn from new data and adapt to evolving needs
+* ✓ Gradually improve model capabilities through multiple training rounds
+* ✓ Establish a closed-loop: data → training → evaluation → improvement
+* ✓ Automate processes and reduce manual intervention
+
+---
+
+## Lab Structure
 
 ```
 llm-iterative-lab/
-├── assets/          # 實驗記錄、發現與洞察
-├── docs/            # 理論文件與技術深度解析
-├── lab_tasks/       # 實作任務與實驗
-└── scripts/         # 環境檢查與工具腳本
+├── assets/          # Experiment logs, discoveries, insights
+├── docs/            # Theoretical papers and technical deep dives
+├── lab_tasks/       # Practical tasks and experiments
+└── scripts/         # Environment checks and utility scripts
 ```
 
-符合 Edge AI Learning Path 的標準結構：
-- **`assets/`** - 實驗日誌、發現、數據分析結果
-- **`docs/`** - 概念解析、數學推導、實作指南
-- **`lab_tasks/`** - 可執行的實驗任務
-- **`scripts/`** - 環境驗證、安裝、自動化工具
+Follows the standard **Edge AI Learning Path** structure:
+
+* **`assets/`** - Experiment logs, findings, data analysis
+* **`docs/`** - Concept breakdowns, mathematical derivations, implementation guides
+* **`lab_tasks/`** - Executable experimental tasks
+* **`scripts/`** - Environment checks, installations, and automation tools
 
 ---
 
-## 學習路徑
+## Learning Path
 
-### 1. 理論基礎
-📖 從 `docs/` 開始，理解迭代優化的數學原理與設計思維
+### 1. Theoretical Foundation
 
-### 2. 動手實驗
-💻 進入 `lab_tasks/` 執行任務，從單次訓練走向迭代流程
+Start from `docs/` to understand the mathematical principles and design mindset behind iterative optimization
 
-### 3. 記錄與反思
-📝 將實驗結果、發現、問題記錄在 `assets/`
+### 2. Hands-On Experiments
+
+Dive into `lab_tasks/` and move from single-run training to iterative workflows
+
+### 3. Logging and Reflection
+
+Record experiment results, insights, and questions in `assets/`
 
 ---
 
-## 快速開始
+## Quick Start
 
-### 環境準備
+### Environment Setup
 
-**硬體需求**：
-- GPU: 8GB+ VRAM
-- RAM: 16GB+
-- 儲存空間: 50GB+
+**Hardware Requirements**:
 
-**軟體需求**：
-- Python 3.9+
-- CUDA 11.8+
-- PyTorch 2.0+
+* GPU: 8GB+ VRAM
+* RAM: 16GB+
+* Storage: 50GB+
 
-### 安裝與檢查
+**Software Requirements**:
+
+* Python 3.9+
+* CUDA 11.8+
+* PyTorch 2.0+
+
+### Install & Check
 
 ```bash
-# 檢查環境（Windows PowerShell）
+# Environment check (Windows PowerShell)
 .\scripts\check_environment.ps1
 
-# 安裝依賴
+# Install dependencies
 .\scripts\install_requirements.ps1
 ```
 
-### 開始第一個實驗
+### Start Your First Experiment
 
 ```bash
-# 進入任務目錄
+# Go to the task directory
 cd lab_tasks/task01_sft-dpo
 
-# 閱讀任務說明
+# Read the task description
 cat README.md
 
-# 依照指引開始實驗
+# Follow the instructions to start the experiment
 ```
 
 ---
 
-## 實驗室哲學
+## Further Exploration
 
-依循 Edge AI Learning Path 的核心理念：
+This lab is part of the **Model Application** series.
 
-- **理論是行動的基礎**
-  我們透過代碼驗證數學，將抽象轉化為清晰。
+Related topics:
 
-- **實作不是產品**
-  這是安全的探索沙盒，不是生產流水線。
-
-- **進步是迭代的**
-  我們不急於求成，而是掌握每一步背後的推理。
-
-- **理解不是記憶**
-  準備好紙筆。這個實驗室可能會引發數學過敏。
-
----
-
-## 延伸探索
-
-這個實驗室是 **Model Application** 系列的一部分。
-
-相關主題：
-- **Model Optimization** - 量化、剪枝、蒸餾
-- **Model Application** - 多模態、部署、應用開發
+* **Model Optimization** – Quantization, pruning, distillation
+* **Model Application** – Multimodal systems, deployment, application development
 
 ---
 
 ## License
 
-本專案基於 **MIT License** 開源。
-允許自由學習、修改與再利用。
-若用於課程、社群或研究，請註明出處。
+This project is open-sourced under the **MIT License**.
+You are free to learn, modify, and reuse it.
+If used in courses, communities, or research, please give proper attribution.
 
 ---
 
 **Ready to iterate?**
 
-開始探索 → [`lab_tasks/`](lab_tasks/)
+Begin exploring → [`lab_tasks/`](lab_tasks/)

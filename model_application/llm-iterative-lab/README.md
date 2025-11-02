@@ -1,7 +1,3 @@
-Sure! Here's the full translation of your content into English:
-
----
-
 # LLM Iterative Lab
 
 > A model isn’t finished after just one training run.
